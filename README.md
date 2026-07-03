@@ -1,4 +1,4 @@
-# Refract — JSON & XML Studio
+# PAW — Payload Analysis Wingman
 
 A fast, offline-capable JSON/XML viewer, formatter, and diff tool. Paste or upload a
 document to explore it as a searchable tree, validate it with precise error locations,
@@ -16,7 +16,7 @@ file anywhere static.
      ```bash
      git init
      git add index.html README.md .nojekyll
-     git commit -m "Refract JSON & XML Studio"
+     git commit -m "PAW – Payload Analysis Wingman"
      git branch -M main
      git remote add origin https://github.com/<you>/refract.git
      git push -u origin main
