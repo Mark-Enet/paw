@@ -56,6 +56,13 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     const manifest = JSON.parse(manifestEl.textContent);
     let template = JSON.parse(templateEl.textContent);
+    // Normalize malformed bundled attribute quoting like x1="\"7\"" or d=""M..."".
+    const malformedSvgAttrValueRE = /=\s*(?:"\\\"([^"]*?)\\\""|'\\\"([^']*?)\\\"'|""([^"]+?)""|''([^']+?)'')/g;
+    template = template.replace(
+      malformedSvgAttrValueRE,
+      (_, escapedInDouble, escapedInSingle, doubledDouble, doubledSingle) =>
+        `="${escapedInDouble ?? escapedInSingle ?? doubledDouble ?? doubledSingle ?? ''}"`
+    );
 
     const uuids = Object.keys(manifest);
     setStatus('Unpacking ' + uuids.length + ' assets...');
