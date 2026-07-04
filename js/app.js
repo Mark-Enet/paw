@@ -66,6 +66,7 @@ const IDENT = /^[A-Za-z_$][\w$]*$/;
 const LS_KEY = 'refract.studio.v2';
 const ROW_H = 22;
 const TABLE_ROW_H = 34;
+const TABLE_COLS = 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(74px,.6fr) auto';
 const MAX_PERSIST = 500000;
 
 function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
@@ -872,7 +873,7 @@ class Component extends DCLogic {
     const copyValKey = n.path + ':value';
     const pathCopied = this.state.copied === copyPathKey;
     const valCopied = this.state.copied === copyValKey;
-    return h('div', { className: 'rf-table-row rf-row', style: { display: 'grid', gridTemplateColumns: 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(74px,.6fr) auto', gap: '10px', alignItems: 'center', minHeight: (TABLE_ROW_H - 2) + 'px', padding: '6px 10px', borderBottom: '1px solid ' + tok.border + '66' } },
+    return h('div', { className: 'rf-table-row rf-row', style: { display: 'grid', gridTemplateColumns: TABLE_COLS, gap: '10px', alignItems: 'center', minHeight: (TABLE_ROW_H - 2) + 'px', padding: '6px 10px', borderBottom: '1px solid ' + tok.border + '66' } },
       h('div', { className: 'rf-table-cell-path', title: row.path, style: { color: tok.accent, font: '600 11px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, row.path),
       h('div', { className: 'rf-table-cell-key', title: row.key, style: { color: n.vType === 'attr' ? tok.syn.attr : tok.syn.key, font: '500 12px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, this.hl(row.key, ctx, n.path, 'k')),
       h('div', { className: 'rf-table-cell-value', title: row.value, style: { color: this.valColor(n.vType, tok), font: '400 12px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, this.hl(row.value, ctx, n.path, 'v')),
@@ -992,7 +993,7 @@ class Component extends DCLogic {
         explorerEl = h('div', { style: { padding: '24px', color: tok.textFaint, font: '500 13px/1.5 ' + tok.fontUi } }, 'No table rows match the current filter.');
       } else {
         explorerEl = h('div', { className: 'rf-table', style: { minWidth: 0 } },
-          h('div', { className: 'rf-table-head', style: { position: 'sticky', top: 0, zIndex: 2, display: 'grid', gridTemplateColumns: 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(74px,.6fr) auto', gap: '10px', padding: '8px 10px', borderBottom: '1px solid ' + tok.border, background: tok.panel2, color: tok.textFaint, font: '700 10.5px/1 ' + tok.fontUi, letterSpacing: '.06em', textTransform: 'uppercase' } },
+          h('div', { className: 'rf-table-head', style: { position: 'sticky', top: 0, zIndex: 2, display: 'grid', gridTemplateColumns: TABLE_COLS, gap: '10px', padding: '8px 10px', borderBottom: '1px solid ' + tok.border, background: tok.panel2, color: tok.textFaint, font: '700 10.5px/1 ' + tok.fontUi, letterSpacing: '.06em', textTransform: 'uppercase' } },
             h('span', {}, 'Path'),
             h('span', {}, 'Key'),
             h('span', {}, 'Value'),
