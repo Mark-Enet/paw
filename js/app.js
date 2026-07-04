@@ -67,6 +67,7 @@ const LS_KEY = 'refract.studio.v2';
 const ROW_H = 22;
 const TABLE_ROW_H = 34;
 const TABLE_COLS = 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(74px,.6fr) auto';
+const INDEXED_SEG_RE = /\[\d+\]/;
 const MAX_PERSIST = 500000;
 
 function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
@@ -861,7 +862,7 @@ class Component extends DCLogic {
       else if (!hasArray && maxDepth > 2) suitable = false;
     }
     if (suitable && parsed.format === 'xml') {
-      const hasIndexedPath = rows.some(r => /\[\d+\]/.test(r.path));
+      const hasIndexedPath = rows.some(r => INDEXED_SEG_RE.test(r.path));
       if (!hasIndexedPath && rows.length <= 1) suitable = false;
     }
     return { rows, suitable };
