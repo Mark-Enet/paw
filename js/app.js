@@ -70,7 +70,7 @@ const TABLE_ROW_MIN_H = TABLE_ROW_H - 2;
 const TABLE_COLS = 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(74px,.6fr) auto';
 const INDEXED_SEG_RE = /\[\d+\]/;
 const TABLE_JSON_MAX_DEPTH = 2;
-const TABLE_XML_MIN_ROWS = 1;
+const TABLE_XML_MIN_SUITABLE_ROWS = 1;
 const MAX_PERSIST = 500000;
 
 function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
@@ -866,7 +866,7 @@ class Component extends DCLogic {
     }
     if (suitable && parsed.format === 'xml') {
       const hasIndexedPath = rows.some(r => INDEXED_SEG_RE.test(r.path));
-      if (!hasIndexedPath && rows.length <= TABLE_XML_MIN_ROWS) suitable = false;
+      if (!hasIndexedPath && rows.length <= TABLE_XML_MIN_SUITABLE_ROWS) suitable = false;
     }
     return { rows, suitable };
   }
@@ -991,7 +991,7 @@ class Component extends DCLogic {
       if (activePath) { const np = activePath.replace(/#[kv]$/, ''); this._activeRowIndex = rows.findIndex(r => r.node.path === np); }
       if (!table.suitable) {
         explorerEl = h('div', { style: { padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '12px' } },
-          h('div', { style: { color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, 'This document doesn’t contain array or object data suitable for table view.'),
+          h('div', { style: { color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, 'This document structure is not suitable for table view.'),
           h('button', { style: btnStyle, onClick: () => this.setState({ view: 'tree' }) }, 'Switch to Tree'));
       } else if (!rows.length) {
         explorerEl = h('div', { style: { padding: '24px', color: tok.textFaint, font: '500 13px/1.5 ' + tok.fontUi } }, 'No table rows match the current filter.');
