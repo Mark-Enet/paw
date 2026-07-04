@@ -164,6 +164,17 @@
       );
     },
 
+    // Table / grid  (13×13, inline style for alignment)
+    table: function () {
+      return ic(
+        '<rect x="2" y="2.5" width="10" height="9" rx="1"/>' +
+        '<line x1="2" y1="5.5" x2="12" y2="5.5"/>' +
+        '<line x1="5.3" y1="2.5" x2="5.3" y2="11.5"/>' +
+        '<line x1="8.7" y1="2.5" x2="8.7" y2="11.5"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
+
     // Code / raw  (13×13, inline style for alignment)
     code: function () {
       return ic(

@@ -1098,7 +1098,7 @@ class Component extends DCLogic {
       statusText, statusColor, statusDot, statusDotHalo, hasError, errorLine,
       onJumpError: () => { const ta = this.editorRef.current; if (ta && errorLine) { const line = errorLine; const upto = S.input.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0); ta.focus(); ta.setSelectionRange(upto, upto); const lh = 20; ta.scrollTop = Math.max(0, (line - 3) * lh); if (this.highlightRef.current) this.highlightRef.current.scrollTop = ta.scrollTop; if (this.gutterRef.current) this.gutterRef.current.scrollTop = ta.scrollTop; } },
 
-      view: S.view, viewTreeStyle: segFlat(S.view === 'tree'), viewRawStyle: segFlat(S.view === 'raw'), viewTableStyle: segFlat(S.view === 'table'),
+      view: S.view, isTreeView: S.view === 'tree', viewTreeStyle: segFlat(S.view === 'tree'), viewRawStyle: segFlat(S.view === 'raw'), viewTableStyle: segFlat(S.view === 'table'),
       onViewTree: () => this.setState({ view: 'tree' }), onViewRaw: () => this.setState({ view: 'raw' }), onViewTable: () => this.setState({ view: 'table' }),
       onExpandAll: () => this.setState({ collapsed: new Set() }),
       onCollapseAll: () => this.setState({ collapsed: new Set(this.allContainerPaths(node).filter(p => p !== '/root' && node && p !== node.path)) }),
@@ -1140,6 +1140,7 @@ class Component extends DCLogic {
         iconDownload: ic.download(),
         iconTrash: ic.trash(),
         iconTree: ic.tree(),
+        iconTable: ic.table(),
         iconCode: ic.code(),
         iconExpand: ic.expand(),
         iconCollapse: ic.collapse(),
