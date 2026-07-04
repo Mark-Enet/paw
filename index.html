@@ -164,7 +164,7 @@
             <span style="width:12px;height:12px;border:2px solid var(--text-faint,#9096ac);border-radius:50%;position:relative;flex:0 0 auto"><span style="position:absolute;width:5px;height:2px;background:var(--text-faint,#9096ac);transform:rotate(45deg);right:-4px;bottom:-1px;border-radius:2px"></span></span>
             <input data-rf-search="1" value="{{ search }}" onchange="{{ onSearch }}" placeholder="Search keys &amp; values…  (⌘F)" style="flex:1;min-width:0;border:0;outline:none;background:transparent;color:var(--text,#1b1e2b);font:500 12.5px var(--font-ui)">
             <sc-if value="{{ hasSearch }}" hint-placeholder-val="{{ false }}">
-              <button style="{{ navBtnStyle }}" onclick="{{ onClearSearch }}">✕</button>
+              <button style="{{ navBtnStyle }}" aria-label="Clear search" onclick="{{ onClearSearch }}">✕</button>
               <span style="font:600 11px/1 var(--font-mono);color:var(--text-dim,#565d73);white-space:nowrap">{{ matchLabel }}</span>
               <button style="{{ navBtnStyle }}" onclick="{{ onPrevMatch }}">‹</button>
               <button style="{{ navBtnStyle }}" onclick="{{ onNextMatch }}">›</button>
@@ -182,7 +182,7 @@
             <input value="{{ query }}" onchange="{{ onQuery }}" placeholder="{{ queryPlaceholder }}" style="flex:1;min-width:0;height:26px;border:0;outline:none;background:transparent;color:var(--text,#1b1e2b);font:500 12.5px var(--font-mono)">
             <sc-if value="{{ hasQuery }}" hint-placeholder-val="{{ false }}">
               <span style="{{ queryStatStyle }}">{{ queryStat }}</span>
-              <button style="{{ navBtnStyle }}" onclick="{{ onClearQuery }}">✕</button>
+              <button style="{{ navBtnStyle }}" aria-label="Clear query" onclick="{{ onClearQuery }}">✕</button>
             </sc-if>
           </div>
         </sc-if>
