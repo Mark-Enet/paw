@@ -143,14 +143,16 @@
     <!-- EXPLORER PANEL -->
     <section style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
       <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap">
-        <div style="display:flex;padding:3px;background:var(--elev,#fff);border:1px solid var(--border,#e3e6ef);border-radius:8px;gap:2px">
+        <div style="display:flex;padding:2px;background:var(--elev,#fff);border:1px solid var(--border,#e3e6ef);border-radius:8px;gap:2px">
           <button style="{{ viewTreeStyle }}" onclick="{{ onViewTree }}">{{ iconTree }}Tree</button>
-          <button style="{{ viewTableStyle }}" onclick="{{ onViewTable }}">Table</button>
+          <button style="{{ viewTableStyle }}" onclick="{{ onViewTable }}">{{ iconTable }}Table</button>
           <button style="{{ viewRawStyle }}" onclick="{{ onViewRaw }}">{{ iconCode }}Raw</button>
         </div>
         <div style="flex:1"></div>
-        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onExpandAll }}">{{ iconExpand }}Expand all</button>
-        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCollapseAll }}">{{ iconCollapse }}Collapse all</button>
+        <sc-if value="{{ isTreeView }}" hint-placeholder-val="{{ false }}">
+          <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onExpandAll }}">{{ iconExpand }}Expand all</button>
+          <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCollapseAll }}">{{ iconCollapse }}Collapse all</button>
+        </sc-if>
       </div>
 
       <div class="rf-explorer-toolbar">
