@@ -98,6 +98,7 @@ class Component extends DCLogic {
       collapsed: new Set(),
       search: '',
       searchMode: P.searchMode || 'highlight',
+      explorerMode: P.explorerMode || 'search',
       matchIndex: 0,
       query: '',
       copied: null,
@@ -151,7 +152,7 @@ class Component extends DCLogic {
         box.scrollTop = target; this.setState({ scrollTop: target });
       }
     }
-    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.searchMode !== this.state.searchMode || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
+    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
       this.schedulePersist();
     }
   }
@@ -160,7 +161,7 @@ class Component extends DCLogic {
     clearTimeout(this._persistTimer);
     this._persistTimer = setTimeout(() => {
       const S = this.state;
-      const data = { mode: S.mode, theme: S.theme, direction: S.direction, indent: S.indent, view: S.view, searchMode: S.searchMode, diffA: S.diffA, diffB: S.diffB };
+      const data = { mode: S.mode, theme: S.theme, direction: S.direction, indent: S.indent, view: S.view, searchMode: S.searchMode, explorerMode: S.explorerMode, diffA: S.diffA, diffB: S.diffB };
       if (S.input.length <= MAX_PERSIST) data.input = S.input;
       try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
     }, 350);
@@ -176,7 +177,7 @@ class Component extends DCLogic {
       if (k === 'Escape') { e.target.blur(); return; }
     }
     if (mod) {
-      if (k === 'f' || k === 'F') { e.preventDefault(); this.setState({ mode: 'format' }); const i = document.querySelector('[data-rf-search]'); if (i) { i.focus(); if (i.select) i.select(); } return; }
+      if (k === 'f' || k === 'F') { e.preventDefault(); this.setState({ mode: 'format', explorerMode: 'search' }); const i = document.querySelector('[data-rf-search]'); if (i) { i.focus(); if (i.select) i.select(); } return; }
       if (k === 'Enter') { e.preventDefault(); this.reformat(false); return; }
       if (k === '\\') { e.preventDefault(); this.reformat(true); return; }
       if (k === 's' || k === 'S') { e.preventDefault(); this.doShare(); return; }
@@ -950,7 +951,8 @@ class Component extends DCLogic {
     if (heavy && !parsed.empty && !hasError) statusText += ' \u00b7 large-file mode';
 
     // search context (cached on input+term)
-    const term = S.search.trim();
+    const savedTerm = S.search.trim();
+    const term = S.explorerMode === 'search' ? savedTerm : '';
     if (!this._matchCache || this._matchCache.input !== S.docInput || this._matchCache.term !== term) {
       this._matchCache = { input: S.docInput, term, matches: term ? this.collectMatches(node, term) : [] };
     }
@@ -960,7 +962,8 @@ class Component extends DCLogic {
     const matchLabel = matches.length ? (((S.matchIndex % matches.length) + matches.length) % matches.length + 1) + '/' + matches.length : '0/0';
 
     // query
-    const query = S.query.trim();
+    const savedQuery = S.query.trim();
+    const query = S.explorerMode === 'query' ? savedQuery : '';
     let explorerEl, queryStat = '', queryStatOk = true;
     if (query) {
       const qr = isXml ? this.runXPath(parsed.doc, query) : this.runJsonPath(parsed.ok ? parsed.value : {}, query);
@@ -1099,12 +1102,16 @@ class Component extends DCLogic {
       onExpandAll: () => this.setState({ collapsed: new Set() }),
       onCollapseAll: () => this.setState({ collapsed: new Set(this.allContainerPaths(node).filter(p => p !== '/root' && node && p !== node.path)) }),
 
-      search: S.search, onSearch: (e) => this.setState({ search: e.target.value, matchIndex: 0 }), hasSearch: !!term,
+      search: S.search, onSearch: (e) => this.setState({ search: e.target.value, matchIndex: 0 }), hasSearch: !!savedTerm,
+      onClearSearch: () => this.setState({ search: '', matchIndex: 0 }),
       matchLabel, onPrevMatch: () => this.setState(s => ({ matchIndex: s.matchIndex - 1 })), onNextMatch: () => this.setState(s => ({ matchIndex: s.matchIndex + 1 })),
       searchMode: S.searchMode, modeHiStyle: seg(S.searchMode === 'highlight'), modeFilStyle: seg(S.searchMode === 'filter'),
       onModeHighlight: () => this.setState({ searchMode: 'highlight' }), onModeFilter: () => this.setState({ searchMode: 'filter' }),
+      explorerMode: S.explorerMode, isSearchToolbarMode: S.explorerMode === 'search', isQueryToolbarMode: S.explorerMode === 'query',
+      toolbarSearchStyle: seg(S.explorerMode === 'search'), toolbarQueryStyle: seg(S.explorerMode === 'query'),
+      onToolbarSearchMode: () => this.setState({ explorerMode: 'search' }), onToolbarQueryMode: () => this.setState({ explorerMode: 'query' }),
 
-      query: S.query, onQuery: (e) => this.setState({ query: e.target.value }), hasQuery: !!query,
+      query: S.query, onQuery: (e) => this.setState({ query: e.target.value }), hasQuery: !!savedQuery,
       queryPrefix: isXml ? 'XPath' : '$', queryPlaceholder: isXml ? "//department[@id='d2']  or  //title" : "$.store.departments[*].title",
       queryStat, queryStatStyle: { font: '600 11px/1 ' + tok.fontMono, color: queryStatOk ? tok.textDim : tok.sem.err, whiteSpace: 'nowrap' },
       onClearQuery: () => this.setState({ query: '' }),

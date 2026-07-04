@@ -153,28 +153,38 @@
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCollapseAll }}">{{ iconCollapse }}Collapse all</button>
       </div>
 
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:7px;flex:1;min-width:180px;height:32px;padding:0 10px;border-radius:var(--radius-sm,7px);border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff)">
-          <span style="width:12px;height:12px;border:2px solid var(--text-faint,#9096ac);border-radius:50%;position:relative;flex:0 0 auto"><span style="position:absolute;width:5px;height:2px;background:var(--text-faint,#9096ac);transform:rotate(45deg);right:-4px;bottom:-1px;border-radius:2px"></span></span>
-          <input data-rf-search="1" value="{{ search }}" onchange="{{ onSearch }}" placeholder="Search keys &amp; values…  (⌘F)" style="flex:1;min-width:0;border:0;outline:none;background:transparent;color:var(--text,#1b1e2b);font:500 12.5px var(--font-ui)">
-          <sc-if value="{{ hasSearch }}" hint-placeholder-val="{{ false }}">
-            <span style="font:600 11px/1 var(--font-mono);color:var(--text-dim,#565d73);white-space:nowrap">{{ matchLabel }}</span>
-            <button style="{{ navBtnStyle }}" onclick="{{ onPrevMatch }}">‹</button>
-            <button style="{{ navBtnStyle }}" onclick="{{ onNextMatch }}">›</button>
-          </sc-if>
+      <div class="rf-explorer-toolbar">
+        <div class="rf-explorer-seg">
+          <button style="{{ toolbarSearchStyle }}" onclick="{{ onToolbarSearchMode }}">Search</button>
+          <button style="{{ toolbarQueryStyle }}" onclick="{{ onToolbarQueryMode }}">Query</button>
         </div>
-        <div style="display:flex;padding:3px;background:var(--panel-2,#eef0f7);border-radius:8px;gap:2px">
-          <button style="{{ modeHiStyle }}" onclick="{{ onModeHighlight }}">{{ iconPencil }}Highlight</button>
-          <button style="{{ modeFilStyle }}" onclick="{{ onModeFilter }}">{{ iconFilter }}Filter</button>
-        </div>
-      </div>
 
-      <div style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid var(--border,#e3e6ef)">
-        <span style="font:600 11px/1 var(--font-mono);color:var(--accent,#6d5efc);flex:0 0 auto">{{ queryPrefix }}</span>
-        <input value="{{ query }}" onchange="{{ onQuery }}" placeholder="{{ queryPlaceholder }}" style="flex:1;min-width:0;height:26px;border:0;outline:none;background:transparent;color:var(--text,#1b1e2b);font:500 12.5px var(--font-mono)">
-        <sc-if value="{{ hasQuery }}" hint-placeholder-val="{{ false }}">
-          <span style="{{ queryStatStyle }}">{{ queryStat }}</span>
-          <button style="{{ navBtnStyle }}" onclick="{{ onClearQuery }}">✕</button>
+        <sc-if value="{{ isSearchToolbarMode }}" hint-placeholder-val="{{ false }}">
+          <div class="rf-explorer-input-wrap">
+            <span style="width:12px;height:12px;border:2px solid var(--text-faint,#9096ac);border-radius:50%;position:relative;flex:0 0 auto"><span style="position:absolute;width:5px;height:2px;background:var(--text-faint,#9096ac);transform:rotate(45deg);right:-4px;bottom:-1px;border-radius:2px"></span></span>
+            <input data-rf-search="1" value="{{ search }}" onchange="{{ onSearch }}" placeholder="Search keys &amp; values…  (⌘F)" style="flex:1;min-width:0;border:0;outline:none;background:transparent;color:var(--text,#1b1e2b);font:500 12.5px var(--font-ui)">
+            <sc-if value="{{ hasSearch }}" hint-placeholder-val="{{ false }}">
+              <button style="{{ navBtnStyle }}" aria-label="Clear search" onclick="{{ onClearSearch }}">✕</button>
+              <span style="font:600 11px/1 var(--font-mono);color:var(--text-dim,#565d73);white-space:nowrap">{{ matchLabel }}</span>
+              <button style="{{ navBtnStyle }}" onclick="{{ onPrevMatch }}">‹</button>
+              <button style="{{ navBtnStyle }}" onclick="{{ onNextMatch }}">›</button>
+            </sc-if>
+          </div>
+          <div class="rf-explorer-seg">
+            <button style="{{ modeHiStyle }}" onclick="{{ onModeHighlight }}">{{ iconPencil }}Highlight</button>
+            <button style="{{ modeFilStyle }}" onclick="{{ onModeFilter }}">{{ iconFilter }}Filter</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isQueryToolbarMode }}" hint-placeholder-val="{{ false }}">
+          <div class="rf-explorer-query-wrap">
+            <span style="font:600 11px/1 var(--font-mono);color:var(--accent,#6d5efc);flex:0 0 auto">{{ queryPrefix }}</span>
+            <input value="{{ query }}" onchange="{{ onQuery }}" placeholder="{{ queryPlaceholder }}" style="flex:1;min-width:0;height:26px;border:0;outline:none;background:transparent;color:var(--text,#1b1e2b);font:500 12.5px var(--font-mono)">
+            <sc-if value="{{ hasQuery }}" hint-placeholder-val="{{ false }}">
+              <span style="{{ queryStatStyle }}">{{ queryStat }}</span>
+              <button style="{{ navBtnStyle }}" aria-label="Clear query" onclick="{{ onClearQuery }}">✕</button>
+            </sc-if>
+          </div>
         </sc-if>
       </div>
 
