@@ -1044,7 +1044,7 @@ class Component extends DCLogic {
     // editor highlight + gutter
     const hlEditor = S.input.length <= 30000;
     const highlightEl = hlEditor ? this.highlight(S.input, parsed.format, tok) : null;
-    const tabSize = S.indent === 'tab' ? 4 : (S.indent === '4' ? 4 : 2);
+    const tabSize = S.indent === '2' ? 2 : 4;
     const taStyle = { position: 'absolute', inset: 0, margin: 0, padding: '12px 14px', font: '400 13px/20px ' + tok.fontMono, whiteSpace: 'pre', overflow: 'auto', resize: 'none', border: 0, outline: 'none', background: 'transparent', color: hlEditor ? 'transparent' : tok.text, caretColor: tok.accent, tabSize };
     if (!this._gutterCache || this._gutterCache.input !== S.input) { const lc = S.input.split('\n').length; let g = ''; for (let i = 1; i <= lc; i++) g += i + (i < lc ? '\n' : ''); this._gutterCache = { input: S.input, text: g }; }
     const gutterText = this._gutterCache.text;
