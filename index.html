@@ -89,14 +89,13 @@
 
   <!-- ===== FORMAT MODE ===== -->
   <sc-if value="{{ isFormat }}" hint-placeholder-val="{{ true }}">
-  <div class="rf-format-grid" style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px">
+  <div class="{{ formatGridClass }}" style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px">
 
     <!-- SOURCE PANEL -->
-    <section style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
+    <section class="{{ sourcePanelClass }}" style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
       <div class="rf-source-toolbar rf-source-toolbar-main" style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap">
         <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase;margin-right:2px">Source</span>
         <span style="{{ badgeStyle }}">{{ formatBadge }}</span>
-        <div style="flex:1"></div>
         <div class="rf-split-btn" ref="{{ beautifyMenuRef }}" style="{{ splitWrapStyle }}">
           <button class="rf-split-btn-main" style="{{ splitMainStyle }}" style-hover="{{ btnHover }}" onclick="{{ onBeautifyMain }}">{{ iconWand }}Beautify</button>
           <button class="rf-split-btn-toggle" style="{{ splitToggleStyle }}" style-hover="{{ btnHover }}" onclick="{{ onBeautifyToggle }}">▼</button>
@@ -113,6 +112,7 @@
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onToggleWrap }}">{{ wrapLabel }}</button>
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSort }}">{{ iconSortKeys }}Sort keys</button>
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onConvert }}">{{ iconSwap }}{{ convertLabel }}</button>
+        <button title="{{ sourceFullscreenLabel }}" aria-label="{{ sourceFullscreenLabel }}" style="{{ fsBtnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSourceFullscreen }}">{{ sourceFullscreenIcon }}</button>
       </div>
 
       <div class="rf-source-toolbar rf-source-toolbar-files" style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid var(--border,#e3e6ef);flex-wrap:wrap">
@@ -145,18 +145,18 @@
     </section>
 
     <!-- EXPLORER PANEL -->
-    <section style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
+    <section class="{{ explorerPanelClass }}" style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
       <div class="rf-explorer-topbar" style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap">
         <div style="display:flex;padding:2px;background:var(--elev,#fff);border:1px solid var(--border,#e3e6ef);border-radius:8px;gap:2px">
           <button style="{{ viewTreeStyle }}" onclick="{{ onViewTree }}">{{ iconTree }}Tree</button>
           <button style="{{ viewTableStyle }}" onclick="{{ onViewTable }}">{{ iconTable }}Table</button>
           <button style="{{ viewRawStyle }}" onclick="{{ onViewRaw }}">{{ iconCode }}Raw</button>
         </div>
-        <div style="flex:1"></div>
         <sc-if value="{{ isTreeView }}" hint-placeholder-val="{{ false }}">
           <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onExpandAll }}">{{ iconExpand }}Expand all</button>
           <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCollapseAll }}">{{ iconCollapse }}Collapse all</button>
         </sc-if>
+        <button title="{{ explorerFullscreenLabel }}" aria-label="{{ explorerFullscreenLabel }}" style="{{ fsBtnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onExplorerFullscreen }}">{{ explorerFullscreenIcon }}</button>
       </div>
 
       <div class="rf-explorer-toolbar">

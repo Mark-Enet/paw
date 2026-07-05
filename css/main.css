@@ -880,6 +880,24 @@
   .rf-explorer-seg { display:flex; gap:2px; padding:2px; border-radius:8px; background:var(--panel-2,#eef0f7); flex:0 0 auto; }
   .rf-explorer-input-wrap,
   .rf-explorer-query-wrap { display:flex; align-items:center; gap:7px; min-width:200px; height:30px; padding:0 10px; border:1px solid var(--border,#e3e6ef); border-radius:var(--radius-sm,7px); background:var(--elev,#fff); flex:1 1 260px; }
+  .rf-format-grid.rf-fs-source,
+  .rf-format-grid.rf-fs-explorer {
+    grid-template-columns: 1fr !important;
+  }
+  .rf-format-grid.rf-fs-source {
+    gap: 0 !important;
+  }
+  .rf-format-grid.rf-fs-explorer {
+    gap: 0 !important;
+  }
+  .rf-format-grid.rf-fs-source .rf-panel-explorer,
+  .rf-format-grid.rf-fs-explorer .rf-panel-source {
+    display: none !important;
+  }
+  .rf-panel-fullscreen {
+    min-height: 0;
+    height: 100%;
+  }
   .rf-source-toolbar-main,
   .rf-explorer-topbar {
     height: 48px;

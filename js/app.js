@@ -122,6 +122,7 @@ function loadPersisted() {
   if (data.searchMode !== 'highlight' && data.searchMode !== 'filter') delete data.searchMode;
   if (data.explorerMode !== 'search' && data.explorerMode !== 'query') delete data.explorerMode;
   if (data.indent !== '2' && data.indent !== '4' && data.indent !== 'tab') delete data.indent;
+  if (data.fullscreenPanel !== 'source' && data.fullscreenPanel !== 'explorer') delete data.fullscreenPanel;
   return data;
 }
 
@@ -151,6 +152,7 @@ class Component extends DCLogic {
       diffB: P.diffB != null ? P.diffB : SAMPLE_DIFF_B,
       scrollTop: 0,
       viewportH: 600,
+      fullscreenPanel: P.fullscreenPanel || null,
       showHelp: false,
       shareMsg: null,
     };
@@ -209,7 +211,7 @@ class Component extends DCLogic {
         box.scrollTop = target; this.setState({ scrollTop: target });
       }
     }
-    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
+    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
       this.schedulePersist();
     }
   }
@@ -227,6 +229,7 @@ class Component extends DCLogic {
       explorerMode: S.explorerMode,
       search: S.search,
       query: S.query,
+      fullscreenPanel: S.fullscreenPanel,
       diffA: S.diffA,
       diffB: S.diffB,
       input: S.input,
@@ -250,6 +253,7 @@ class Component extends DCLogic {
         explorerMode: data.explorerMode,
         search: data.search,
         query: data.query,
+        fullscreenPanel: data.fullscreenPanel,
         input: data.input,
       },
       {
@@ -261,6 +265,7 @@ class Component extends DCLogic {
         view: data.view,
         searchMode: data.searchMode,
         explorerMode: data.explorerMode,
+        fullscreenPanel: data.fullscreenPanel,
       }
     ];
 
@@ -296,7 +301,8 @@ class Component extends DCLogic {
       return;
     }
     if (!typing) {
-      if (k === '?') this.setState(s => ({ showHelp: !s.showHelp }));
+      if (k === 'Escape' && this.state.fullscreenPanel) this.setState({ fullscreenPanel: null });
+      else if (k === '?') this.setState(s => ({ showHelp: !s.showHelp }));
       else if (k === 'Escape' && this.state.showBeautifyMenu) this.setState({ showBeautifyMenu: false });
       else if (k === 'Escape' && this.state.showHelp) this.setState({ showHelp: false });
     }
@@ -1087,6 +1093,7 @@ class Component extends DCLogic {
     const seg = (active) => ({ height: '26px', padding: '0 11px', border: 'none', borderRadius: '7px', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, background: active ? tok.panel : 'transparent', color: active ? tok.accent : tok.textDim, boxShadow: active ? '0 1px 3px rgba(0,0,0,.12)' : 'none', transition: 'all .12s' });
     const segFlat = (active) => ({ height: '26px', padding: '0 11px', border: 'none', borderRadius: '6px', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, background: active ? tok.accent : 'transparent', color: active ? tok.accentContrast : tok.textDim, transition: 'all .12s' });
     const btnStyle = { display: 'inline-flex', alignItems: 'center', gap: '6px', height: '30px', padding: '0 11px', borderRadius: tok.radiusSm, border: '1px solid ' + tok.border, background: tok.elev, color: tok.text, font: '500 12.5px/1 ' + tok.fontUi, cursor: 'pointer', whiteSpace: 'nowrap' };
+    const fsBtnStyle = Object.assign({}, btnStyle, { width: '30px', minWidth: '30px', padding: '0', justifyContent: 'center', marginLeft: 'auto' });
     const btnHover = 'background:' + tok.accentWeak + ';border-color:' + tok.accent + ';color:' + tok.text;
     const btnGhost = Object.assign({}, btnStyle, { border: '1px solid transparent', background: 'transparent', color: tok.textDim });
     const navBtnStyle = { width: '22px', height: '22px', flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '5px', border: '1px solid ' + tok.border, background: tok.elev, color: tok.textDim, cursor: 'pointer', font: '600 13px/1 ' + tok.fontUi };
@@ -1222,6 +1229,9 @@ class Component extends DCLogic {
     const diff = S.mode === 'diff' ? this.renderDiff(tok) : { el: null, add: 0, del: 0 };
     const diffSummary = (diff.add || diff.del) ? '+' + diff.add + '  −' + diff.del : 'Identical';
     const diffSummaryStyle = { font: '600 12px/1 ' + tok.fontMono, color: (diff.add || diff.del) ? tok.text : tok.sem.ok, padding: '0 4px' };
+    const formatGridClass = 'rf-format-grid' + (S.fullscreenPanel === 'source' ? ' rf-fs-source' : (S.fullscreenPanel === 'explorer' ? ' rf-fs-explorer' : ''));
+    const sourcePanelClass = 'rf-panel-source' + (S.fullscreenPanel === 'source' ? ' rf-panel-fullscreen' : '');
+    const explorerPanelClass = 'rf-panel-explorer' + (S.fullscreenPanel === 'explorer' ? ' rf-panel-fullscreen' : '');
 
     return {
       themeVars,
@@ -1232,8 +1242,15 @@ class Component extends DCLogic {
       onDirAurora: () => this.setState({ direction: 'aurora' }), onDirSlate: () => this.setState({ direction: 'slate' }), onDirPaper: () => this.setState({ direction: 'paper' }),
       onThemeToggle: () => this.setState({ theme: theme === 'dark' ? 'light' : 'dark' }),
       themeLabel: theme === 'dark' ? 'Dark' : 'Light', themeDotBg: theme === 'dark' ? tok.text : 'transparent',
+      formatGridClass, sourcePanelClass, explorerPanelClass,
+      sourceFullscreenLabel: S.fullscreenPanel === 'source' ? 'Exit fullscreen' : 'Fullscreen',
+      explorerFullscreenLabel: S.fullscreenPanel === 'explorer' ? 'Exit fullscreen' : 'Fullscreen',
+      sourceFullscreenIcon: S.fullscreenPanel === 'source' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
+      explorerFullscreenIcon: S.fullscreenPanel === 'explorer' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
+      onSourceFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'source' ? null : 'source' })),
+      onExplorerFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'explorer' ? null : 'explorer' })),
 
-      btnStyle, btnHover, btnGhost, navBtnStyle,
+      btnStyle, fsBtnStyle, btnHover, btnGhost, navBtnStyle,
       formatBadge: parsed.format === 'empty' ? 'EMPTY' : parsed.format.toUpperCase(), badgeStyle,
       input: S.input, onInput: (e) => { const val = e.target.value; if (val.length <= 30000) this.setState({ input: val }); clearTimeout(this._docTimer); this._docTimer = setTimeout(() => this.setState({ input: val, docInput: val }), 160); },
       onEditorScroll: (e) => { const t = e.target; if (this.highlightRef.current) { this.highlightRef.current.scrollTop = t.scrollTop; this.highlightRef.current.scrollLeft = t.scrollLeft; } if (this.gutterRef.current) this.gutterRef.current.scrollTop = t.scrollTop; },
