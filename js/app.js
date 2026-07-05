@@ -113,6 +113,15 @@ function loadPersisted() {
     }
   } catch (e) {}
   if (data && typeof data.input === 'string' && data.input.length > MAX_PERSIST) delete data.input;
+  if (data && typeof data.diffA === 'string' && data.diffA.length > MAX_PERSIST) delete data.diffA;
+  if (data && typeof data.diffB === 'string' && data.diffB.length > MAX_PERSIST) delete data.diffB;
+  if (data.mode !== 'format' && data.mode !== 'diff') delete data.mode;
+  if (data.theme !== 'light' && data.theme !== 'dark') delete data.theme;
+  if (data.direction !== 'aurora' && data.direction !== 'slate' && data.direction !== 'paper') delete data.direction;
+  if (data.view !== 'tree' && data.view !== 'table' && data.view !== 'raw') delete data.view;
+  if (data.searchMode !== 'highlight' && data.searchMode !== 'filter') delete data.searchMode;
+  if (data.explorerMode !== 'search' && data.explorerMode !== 'query') delete data.explorerMode;
+  if (data.indent !== '2' && data.indent !== '4' && data.indent !== 'tab') delete data.indent;
   return data;
 }
 
@@ -131,11 +140,11 @@ class Component extends DCLogic {
       showBeautifyMenu: false,
       view: P.view || 'tree',
       collapsed: new Set(),
-      search: '',
+      search: P.search || '',
       searchMode: P.searchMode || 'highlight',
       explorerMode: P.explorerMode || 'search',
       matchIndex: 0,
-      query: '',
+      query: P.query || '',
       copied: null,
       dragging: false,
       diffA: P.diffA != null ? P.diffA : SAMPLE_DIFF_A,
@@ -162,6 +171,7 @@ class Component extends DCLogic {
     this._persistTimer = null;
     this._shareTimer = null;
     this._docTimer = null;
+    this._onPageHide = null;
     this._onKey = this.handleKey.bind(this);
   }
 
@@ -175,6 +185,8 @@ class Component extends DCLogic {
     document.addEventListener('pointerdown', this._onDocClick, true);
     this._onResize = () => { const b = this.treeScrollRef.current; if (b && b.clientHeight) this.setState({ viewportH: b.clientHeight }); };
     window.addEventListener('resize', this._onResize);
+    this._onPageHide = () => this.persistNow();
+    window.addEventListener('pagehide', this._onPageHide);
     const b = this.treeScrollRef.current; if (b && b.clientHeight) this.setState({ viewportH: b.clientHeight });
   }
 
@@ -182,6 +194,8 @@ class Component extends DCLogic {
     window.removeEventListener('keydown', this._onKey, true);
     document.removeEventListener('pointerdown', this._onDocClick, true);
     window.removeEventListener('resize', this._onResize);
+    window.removeEventListener('pagehide', this._onPageHide);
+    this.persistNow();
     clearTimeout(this._persistTimer); clearTimeout(this._copyTimer); clearTimeout(this._shareTimer); clearTimeout(this._docTimer);
   }
 
@@ -195,19 +209,72 @@ class Component extends DCLogic {
         box.scrollTop = target; this.setState({ scrollTop: target });
       }
     }
-    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
+    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
       this.schedulePersist();
+    }
+  }
+
+  persistNow() {
+    const S = this.state;
+    const data = {
+      mode: S.mode,
+      theme: S.theme,
+      direction: S.direction,
+      indent: S.indent,
+      softWrap: S.softWrap,
+      view: S.view,
+      searchMode: S.searchMode,
+      explorerMode: S.explorerMode,
+      search: S.search,
+      query: S.query,
+      diffA: S.diffA,
+      diffB: S.diffB,
+      input: S.input,
+    };
+
+    if (typeof data.input === 'string' && data.input.length > MAX_PERSIST) delete data.input;
+    if (typeof data.diffA === 'string' && data.diffA.length > MAX_PERSIST) delete data.diffA;
+    if (typeof data.diffB === 'string' && data.diffB.length > MAX_PERSIST) delete data.diffB;
+
+    const attempts = [
+      data,
+      Object.assign({}, data, { diffA: '', diffB: '' }),
+      {
+        mode: data.mode,
+        theme: data.theme,
+        direction: data.direction,
+        indent: data.indent,
+        softWrap: data.softWrap,
+        view: data.view,
+        searchMode: data.searchMode,
+        explorerMode: data.explorerMode,
+        search: data.search,
+        query: data.query,
+        input: data.input,
+      },
+      {
+        mode: data.mode,
+        theme: data.theme,
+        direction: data.direction,
+        indent: data.indent,
+        softWrap: data.softWrap,
+        view: data.view,
+        searchMode: data.searchMode,
+        explorerMode: data.explorerMode,
+      }
+    ];
+
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify(attempts[i]));
+        return;
+      } catch (e) {}
     }
   }
 
   schedulePersist() {
     clearTimeout(this._persistTimer);
-    this._persistTimer = setTimeout(() => {
-      const S = this.state;
-      const data = { mode: S.mode, theme: S.theme, direction: S.direction, indent: S.indent, softWrap: S.softWrap, view: S.view, searchMode: S.searchMode, explorerMode: S.explorerMode, diffA: S.diffA, diffB: S.diffB };
-      if (S.input.length <= MAX_PERSIST) data.input = S.input;
-      try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-    }, 350);
+    this._persistTimer = setTimeout(() => this.persistNow(), 220);
   }
 
   handleKey(e) {
