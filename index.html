@@ -97,16 +97,20 @@
         <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase;margin-right:2px">Source</span>
         <span style="{{ badgeStyle }}">{{ formatBadge }}</span>
         <div style="flex:1"></div>
-        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onBeautify }}">{{ iconWand }}Beautify</button>
-        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onMinify }}">{{ iconMinify }}Minify</button>
-        <div style="display:inline-flex;align-items:center;height:30px;border-radius:var(--radius-sm,7px);border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);overflow:hidden">
-          <span style="font:500 11px/1 var(--font-ui);color:var(--text-faint,#9096ac);padding:0 7px">Indent</span>
-          <select value="{{ indent }}" onchange="{{ onIndentChange }}" style="height:28px;border:0;background:transparent;color:var(--text,#1b1e2b);font:500 12px var(--font-ui);cursor:pointer;padding-right:6px;outline:none">
-            <option value="2">2 spaces</option>
-            <option value="4">4 spaces</option>
-            <option value="tab">Tab</option>
-          </select>
+        <div class="rf-split-btn" ref="{{ beautifyMenuRef }}" style="{{ splitWrapStyle }}">
+          <button class="rf-split-btn-main" style="{{ splitMainStyle }}" style-hover="{{ btnHover }}" onclick="{{ onBeautifyMain }}">{{ iconWand }}Beautify</button>
+          <button class="rf-split-btn-toggle" style="{{ splitToggleStyle }}" style-hover="{{ btnHover }}" onclick="{{ onBeautifyToggle }}">▼</button>
+          <sc-if value="{{ showBeautifyMenu }}" hint-placeholder-val="{{ false }}">
+            <div style="{{ beautifyMenuStyle }}">
+              <button style="{{ beautifyItemStyle }}" style-hover="{{ beautifyItemHover }}" onclick="{{ onBeautifyIndent2 }}">2 spaces</button>
+              <button style="{{ beautifyItemStyle }}" style-hover="{{ beautifyItemHover }}" onclick="{{ onBeautifyIndent4 }}">4 spaces</button>
+              <button style="{{ beautifyItemStyle }}" style-hover="{{ beautifyItemHover }}" onclick="{{ onBeautifyIndentTab }}">Tab</button>
+              <div style="padding:7px 10px;font:500 11px/1 var(--font-ui);color:var(--text-faint,#9096ac);background:var(--panel-2,#f0f2f8)">Current: {{ indentLabel }}</div>
+            </div>
+          </sc-if>
         </div>
+        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onMinify }}">{{ iconMinify }}Minify</button>
+        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onToggleWrap }}">{{ wrapLabel }}</button>
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSort }}">{{ iconSortKeys }}Sort keys</button>
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onConvert }}">{{ iconSwap }}{{ convertLabel }}</button>
       </div>
@@ -125,7 +129,7 @@
       <div ref="{{ dropRef }}" ondragover="{{ onDragOver }}" ondragleave="{{ onDragLeave }}" ondrop="{{ onDrop }}" style="flex:1;min-height:0;display:flex;position:relative;overflow:hidden">
         <div ref="{{ gutterRef }}" style="{{ gutterWrapStyle }}"><pre style="margin:0;padding:12px 8px 12px 0;font:400 13px/20px var(--font-mono);color:var(--text-faint,#9096ac);text-align:right">{{ gutterText }}</pre></div>
         <div style="position:relative;flex:1;min-width:0;overflow:hidden">
-          <pre ref="{{ highlightRef }}" class="rf-scroll" aria-hidden="true" style="position:absolute;inset:0;margin:0;padding:12px 14px;font:400 13px/20px var(--font-mono);white-space:pre;overflow:auto;pointer-events:none;tab-size:2">{{ highlightEl }}</pre>
+          <pre ref="{{ highlightRef }}" class="rf-scroll" aria-hidden="true" style="{{ highlightStyle }}">{{ highlightEl }}</pre>
           <textarea ref="{{ editorRef }}" class="rf-ta rf-scroll" spellcheck="false" placeholder="Paste JSON or XML here, drop a file, or hit Sample…" defaultvalue="{{ input }}" onchange="{{ onInput }}" onscroll="{{ onEditorScroll }}" style="{{ taStyle }}"></textarea>
           <div style="{{ dropOverlayStyle }}">Drop file to load</div>
         </div>

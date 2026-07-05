@@ -126,7 +126,9 @@ class Component extends DCLogic {
       direction: P.direction || props.direction || 'aurora',
       input: P.input != null ? P.input : SAMPLE_JSON,
       docInput: P.input != null ? P.input : SAMPLE_JSON,
+      softWrap: !!P.softWrap,
       indent: P.indent || '2',
+      showBeautifyMenu: false,
       view: P.view || 'tree',
       collapsed: new Set(),
       search: '',
@@ -147,6 +149,7 @@ class Component extends DCLogic {
     this.highlightRef = React.createRef();
     this.gutterRef = React.createRef();
     this.fileRef = React.createRef();
+    this.beautifyMenuRef = React.createRef();
     this.treeScrollRef = React.createRef();
     this.dropRef = React.createRef();
     this.activeMatchRef = React.createRef();
@@ -164,6 +167,12 @@ class Component extends DCLogic {
 
   componentDidMount() {
     window.addEventListener('keydown', this._onKey, true);
+    this._onDocClick = (e) => {
+      const wrap = this.beautifyMenuRef.current;
+      if (!wrap) return;
+      if (!wrap.contains(e.target)) this.setState({ showBeautifyMenu: false });
+    };
+    document.addEventListener('pointerdown', this._onDocClick, true);
     this._onResize = () => { const b = this.treeScrollRef.current; if (b && b.clientHeight) this.setState({ viewportH: b.clientHeight }); };
     window.addEventListener('resize', this._onResize);
     const b = this.treeScrollRef.current; if (b && b.clientHeight) this.setState({ viewportH: b.clientHeight });
@@ -171,6 +180,7 @@ class Component extends DCLogic {
 
   componentWillUnmount() {
     window.removeEventListener('keydown', this._onKey, true);
+    document.removeEventListener('pointerdown', this._onDocClick, true);
     window.removeEventListener('resize', this._onResize);
     clearTimeout(this._persistTimer); clearTimeout(this._copyTimer); clearTimeout(this._shareTimer); clearTimeout(this._docTimer);
   }
@@ -185,7 +195,7 @@ class Component extends DCLogic {
         box.scrollTop = target; this.setState({ scrollTop: target });
       }
     }
-    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
+    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
       this.schedulePersist();
     }
   }
@@ -194,7 +204,7 @@ class Component extends DCLogic {
     clearTimeout(this._persistTimer);
     this._persistTimer = setTimeout(() => {
       const S = this.state;
-      const data = { mode: S.mode, theme: S.theme, direction: S.direction, indent: S.indent, view: S.view, searchMode: S.searchMode, explorerMode: S.explorerMode, diffA: S.diffA, diffB: S.diffB };
+      const data = { mode: S.mode, theme: S.theme, direction: S.direction, indent: S.indent, softWrap: S.softWrap, view: S.view, searchMode: S.searchMode, explorerMode: S.explorerMode, diffA: S.diffA, diffB: S.diffB };
       if (S.input.length <= MAX_PERSIST) data.input = S.input;
       try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
     }, 350);
@@ -220,6 +230,7 @@ class Component extends DCLogic {
     }
     if (!typing) {
       if (k === '?') this.setState(s => ({ showHelp: !s.showHelp }));
+      else if (k === 'Escape' && this.state.showBeautifyMenu) this.setState({ showBeautifyMenu: false });
       else if (k === 'Escape' && this.state.showHelp) this.setState({ showHelp: false });
     }
   }
@@ -257,7 +268,7 @@ class Component extends DCLogic {
 
   async doShare() {
     const S = this.state;
-    const data = { theme: S.theme, direction: S.direction, view: S.view, indent: S.indent, mode: S.mode, input: S.input };
+    const data = { theme: S.theme, direction: S.direction, view: S.view, indent: S.indent, softWrap: S.softWrap, mode: S.mode, input: S.input };
     try {
       const hash = 'd=' + b64urlEncode(JSON.stringify(data));
       const url = location.origin + location.pathname + location.search + '#' + hash;
@@ -562,10 +573,10 @@ class Component extends DCLogic {
     if (!p.ok) return;
     if (p.format === 'json') {
       const out = minify ? JSON.stringify(p.value) : JSON.stringify(p.value, null, this.indentStr());
-      this.applyInput(out);
+      this.applyInput(out, minify ? { softWrap: true } : null);
     } else {
       const out = minify ? this.minifyXml(this.state.input) : this.prettyXml(p.doc);
-      this.applyInput(out);
+      this.applyInput(out, minify ? { softWrap: true } : null);
     }
   }
 
@@ -1009,9 +1020,15 @@ class Component extends DCLogic {
     const seg = (active) => ({ height: '26px', padding: '0 11px', border: 'none', borderRadius: '7px', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, background: active ? tok.panel : 'transparent', color: active ? tok.accent : tok.textDim, boxShadow: active ? '0 1px 3px rgba(0,0,0,.12)' : 'none', transition: 'all .12s' });
     const segFlat = (active) => ({ height: '26px', padding: '0 11px', border: 'none', borderRadius: '6px', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, background: active ? tok.accent : 'transparent', color: active ? tok.accentContrast : tok.textDim, transition: 'all .12s' });
     const btnStyle = { display: 'inline-flex', alignItems: 'center', gap: '6px', height: '30px', padding: '0 11px', borderRadius: tok.radiusSm, border: '1px solid ' + tok.border, background: tok.elev, color: tok.text, font: '500 12.5px/1 ' + tok.fontUi, cursor: 'pointer', whiteSpace: 'nowrap' };
-    const btnHover = { background: tok.panel2, borderColor: tok.borderStrong };
+    const btnHover = 'background:' + tok.accentWeak + ';border-color:' + tok.accent + ';color:' + tok.text;
     const btnGhost = Object.assign({}, btnStyle, { border: '1px solid transparent', background: 'transparent', color: tok.textDim });
     const navBtnStyle = { width: '22px', height: '22px', flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '5px', border: '1px solid ' + tok.border, background: tok.elev, color: tok.textDim, cursor: 'pointer', font: '600 13px/1 ' + tok.fontUi };
+    const splitWrapStyle = { position: 'relative', display: 'inline-flex', alignItems: 'center', height: '30px' };
+    const splitMainStyle = { display: 'inline-flex', alignItems: 'center', gap: '6px', height: '30px', padding: '0 10px', borderRadius: tok.radiusSm + ' 0 0 ' + tok.radiusSm, border: '1px solid ' + tok.border, borderRight: '0', background: tok.elev, color: tok.text, font: '500 12.5px/1 ' + tok.fontUi, cursor: 'pointer', whiteSpace: 'nowrap' };
+    const splitToggleStyle = { width: '28px', height: '30px', borderRadius: '0 ' + tok.radiusSm + ' ' + tok.radiusSm + ' 0', border: '1px solid ' + tok.border, background: tok.elev, color: tok.textDim, font: '700 10px/1 ' + tok.fontUi, cursor: 'pointer' };
+    const beautifyMenuStyle = { position: 'absolute', top: '34px', right: 0, display: 'inline-flex', flexDirection: 'column', alignItems: 'stretch', width: 'auto', zIndex: 20, background: tok.panel, border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, boxShadow: tok.shadow, overflow: 'hidden' };
+    const beautifyItemStyle = { display: 'block', width: 'auto', minWidth: 0, height: '30px', padding: '0 10px', border: 0, borderBottom: '1px solid ' + tok.border, background: 'transparent', color: tok.text, font: '500 12px/1 ' + tok.fontUi, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' };
+    const beautifyItemHover = 'background:' + tok.accentWeak + ';color:' + tok.accent;
 
     // parse current (memoized on input)
     const model = this.buildModel();
@@ -1123,7 +1140,9 @@ class Component extends DCLogic {
     const hlEditor = S.input.length <= 30000;
     const highlightEl = hlEditor ? this.highlight(S.input, parsed.format, tok) : null;
     const tabSize = (S.indent === '4' || S.indent === 'tab') ? 4 : 2;
-    const taStyle = { position: 'absolute', inset: 0, margin: 0, padding: '12px 14px', font: '400 13px/20px ' + tok.fontMono, whiteSpace: 'pre', overflow: 'auto', resize: 'none', border: 0, outline: 'none', background: 'transparent', color: hlEditor ? 'transparent' : tok.text, caretColor: tok.accent, tabSize };
+    const textWhiteSpace = S.softWrap ? 'pre-wrap' : 'pre';
+    const taStyle = { position: 'absolute', inset: 0, margin: 0, padding: '12px 14px', font: '400 13px/20px ' + tok.fontMono, whiteSpace: textWhiteSpace, overflow: 'auto', overflowWrap: S.softWrap ? 'anywhere' : 'normal', resize: 'none', border: 0, outline: 'none', background: 'transparent', color: hlEditor ? 'transparent' : tok.text, caretColor: tok.accent, tabSize };
+    const highlightStyle = { position: 'absolute', inset: 0, margin: 0, padding: '12px 14px', font: '400 13px/20px ' + tok.fontMono, whiteSpace: textWhiteSpace, overflow: 'auto', overflowWrap: S.softWrap ? 'anywhere' : 'normal', pointerEvents: 'none', tabSize };
     if (!this._gutterCache || this._gutterCache.input !== S.input) { const lc = S.input.split('\n').length; let g = ''; for (let i = 1; i <= lc; i++) g += i + (i < lc ? '\n' : ''); this._gutterCache = { input: S.input, text: g }; }
     const gutterText = this._gutterCache.text;
 
@@ -1152,9 +1171,20 @@ class Component extends DCLogic {
       input: S.input, onInput: (e) => { const val = e.target.value; if (val.length <= 30000) this.setState({ input: val }); clearTimeout(this._docTimer); this._docTimer = setTimeout(() => this.setState({ input: val, docInput: val }), 160); },
       onEditorScroll: (e) => { const t = e.target; if (this.highlightRef.current) { this.highlightRef.current.scrollTop = t.scrollTop; this.highlightRef.current.scrollLeft = t.scrollLeft; } if (this.gutterRef.current) this.gutterRef.current.scrollTop = t.scrollTop; },
       editorRef: this.editorRef, highlightRef: this.highlightRef, gutterRef: this.gutterRef, fileRef: this.fileRef, dropRef: this.dropRef, treeScrollRef: this.treeScrollRef,
-      highlightEl, gutterText, taStyle,
+      highlightEl, highlightStyle, gutterText, taStyle,
       gutterWrapStyle: { flex: '0 0 auto', width: showLN ? '52px' : '0', overflow: 'hidden', borderRight: showLN ? '1px solid ' + tok.border : 'none', background: tok.panel2, display: showLN ? 'block' : 'none' },
       indent: S.indent, onIndentChange: (e) => this.setState({ indent: e.target.value }),
+      beautifyMenuRef: this.beautifyMenuRef,
+      showBeautifyMenu: S.showBeautifyMenu,
+      splitWrapStyle, splitMainStyle, splitToggleStyle, beautifyMenuStyle, beautifyItemStyle, beautifyItemHover,
+      indentLabel: S.indent === 'tab' ? 'Tab' : (S.indent + ' spaces'),
+      onBeautifyMain: () => { this.setState({ showBeautifyMenu: false }); this.reformat(false); },
+      onBeautifyToggle: (e) => { e.stopPropagation(); this.setState(s => ({ showBeautifyMenu: !s.showBeautifyMenu })); },
+      onBeautifyIndent2: () => this.setState({ indent: '2', showBeautifyMenu: false }, () => this.reformat(false)),
+      onBeautifyIndent4: () => this.setState({ indent: '4', showBeautifyMenu: false }, () => this.reformat(false)),
+      onBeautifyIndentTab: () => this.setState({ indent: 'tab', showBeautifyMenu: false }, () => this.reformat(false)),
+      wrapLabel: S.softWrap ? 'Wrap: On' : 'Wrap: Off',
+      onToggleWrap: () => this.setState(s => ({ softWrap: !s.softWrap })),
       onBeautify: () => this.reformat(false), onMinify: () => this.reformat(true), onSort: () => this.sortKeys(),
       onConvert: () => this.convert(), convertLabel: isXml ? 'To JSON' : 'To XML',
       onUploadClick: () => this.fileRef.current && this.fileRef.current.click(),
