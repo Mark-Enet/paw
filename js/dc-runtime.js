@@ -1565,10 +1565,12 @@
   }
 
   // src/index.ts
-  var REACT_URL = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
-  var REACT_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
-  var REACT_DOM_URL = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
-  var REACT_DOM_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
+  var REACT_LOCAL_URL = "js/vendor/react.production.min.js";
+  var REACT_DOM_LOCAL_URL = "js/vendor/react-dom.production.min.js";
+  var REACT_CDN_URL = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
+  var REACT_CDN_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
+  var REACT_DOM_CDN_URL = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
+  var REACT_DOM_CDN_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
   function hideRawTemplate() {
     const s = document.createElement("style");
     s.textContent = "x-dc{display:none!important}";
@@ -1579,21 +1581,28 @@
       //! nosemgrep: create-script-element
       const s = document.createElement("script");
       s.src = src;
-      s.integrity = integrity;
-      s.crossOrigin = "anonymous";
+      if (integrity) {
+        s.integrity = integrity;
+        s.crossOrigin = "anonymous";
+      }
       s.async = false;
       s.onload = () => resolve2();
       s.onerror = () => reject(new Error(`failed to load ${src}`));
       document.head.appendChild(s);
     });
   }
+  function loadPair(reactUrl, reactDomUrl, reactSri, reactDomSri) {
+    return Promise.all([
+      loadScript(reactUrl, reactSri),
+      loadScript(reactDomUrl, reactDomSri)
+    ]).then(() => void 0);
+  }
   function loadReactUmd() {
     const w = window;
     if (w.React && w.ReactDOM) return Promise.resolve();
-    return Promise.all([
-      loadScript(REACT_URL, REACT_SRI),
-      loadScript(REACT_DOM_URL, REACT_DOM_SRI)
-    ]).then(() => void 0);
+    return loadPair(REACT_LOCAL_URL, REACT_DOM_LOCAL_URL).catch(() => {
+      return loadPair(REACT_CDN_URL, REACT_DOM_CDN_URL, REACT_CDN_SRI, REACT_DOM_CDN_SRI);
+    });
   }
   function init() {
     const runtime = createRuntime(document);
