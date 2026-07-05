@@ -44,11 +44,11 @@
 <!-- App template. dc-runtime renders this via React once the component boots.
      { iconName } interpolations are resolved from js/icons.js via PAW_ICONS. -->
 <x-dc>
-<div style="height:100vh;width:100%;overflow:hidden;font-family:var(--font-ui,system-ui)">
+<div style="height:100vh;min-height:100dvh;width:100%;overflow:hidden;font-family:var(--font-ui,system-ui)">
 <div class="rf-scroll" style="{{ themeVars }}">
 
   <!-- ===== HEADER ===== -->
-  <header style="display:flex;align-items:center;gap:16px;padding:0 18px;height:56px;flex:0 0 auto;background:var(--panel,#fff);border-bottom:1px solid var(--border,#e3e6ef);z-index:5">
+  <header class="rf-header" style="display:flex;align-items:center;gap:16px;padding:10px 18px;min-height:56px;flex:0 0 auto;background:var(--panel,#fff);border-bottom:1px solid var(--border,#e3e6ef);z-index:5;flex-wrap:wrap">
     <div style="display:flex;align-items:center;gap:11px">
       <!-- logo-slot: replace inner SVG contents to use a custom logo -->
       <div id="paw-logo" style="width:28px;height:28px;flex-shrink:0">
@@ -64,16 +64,16 @@
       </div>
     </div>
 
-    <div style="display:flex;padding:3px;background:var(--panel-2,#eef0f7);border-radius:9px;gap:2px">
+    <div class="rf-main-tabs" style="display:flex;padding:3px;background:var(--panel-2,#eef0f7);border-radius:9px;gap:2px">
       <button style="{{ tabFormatStyle }}" onclick="{{ onFormat }}">Format &amp; Explore</button>
       <button style="{{ tabDiffStyle }}" onclick="{{ onDiff }}">Diff</button>
     </div>
 
-    <div style="flex:1"></div>
+    <div class="rf-header-spacer" style="flex:1"></div>
 
-    <div style="display:flex;align-items:center;gap:6px">
+    <div class="rf-style-group" style="display:flex;align-items:center;gap:6px">
       <span style="font:600 10px/1 var(--font-ui);color:var(--text-faint,#9096ac);letter-spacing:.05em;margin-right:2px">STYLE</span>
-      <div style="display:flex;padding:3px;background:var(--panel-2,#eef0f7);border-radius:9px;gap:2px">
+      <div class="rf-style-seg" style="display:flex;padding:3px;background:var(--panel-2,#eef0f7);border-radius:9px;gap:2px">
         <button style="{{ dirAuroraStyle }}" onclick="{{ onDirAurora }}">Aurora</button>
         <button style="{{ dirSlateStyle }}" onclick="{{ onDirSlate }}">Slate</button>
         <button style="{{ dirPaperStyle }}" onclick="{{ onDirPaper }}">Paper</button>
@@ -89,11 +89,11 @@
 
   <!-- ===== FORMAT MODE ===== -->
   <sc-if value="{{ isFormat }}" hint-placeholder-val="{{ true }}">
-  <div style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px">
+  <div class="rf-format-grid" style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px">
 
     <!-- SOURCE PANEL -->
     <section style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
-      <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap">
+      <div class="rf-source-toolbar rf-source-toolbar-main" style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap">
         <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase;margin-right:2px">Source</span>
         <span style="{{ badgeStyle }}">{{ formatBadge }}</span>
         <div style="flex:1"></div>
@@ -111,7 +111,7 @@
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onConvert }}">{{ iconSwap }}{{ convertLabel }}</button>
       </div>
 
-      <div style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid var(--border,#e3e6ef)">
+      <div class="rf-source-toolbar rf-source-toolbar-files" style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid var(--border,#e3e6ef);flex-wrap:wrap">
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onUploadClick }}">{{ iconUpload }}Upload file</button>
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSample }}">{{ iconFileDoc }}Sample</button>
         <div style="flex:1"></div>
@@ -142,7 +142,7 @@
 
     <!-- EXPLORER PANEL -->
     <section style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
-      <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap">
+      <div class="rf-explorer-topbar" style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap">
         <div style="display:flex;padding:2px;background:var(--elev,#fff);border:1px solid var(--border,#e3e6ef);border-radius:8px;gap:2px">
           <button style="{{ viewTreeStyle }}" onclick="{{ onViewTree }}">{{ iconTree }}Tree</button>
           <button style="{{ viewTableStyle }}" onclick="{{ onViewTable }}">{{ iconTable }}Table</button>
@@ -200,8 +200,8 @@
 
   <!-- ===== DIFF MODE ===== -->
   <sc-if value="{{ isDiff }}" hint-placeholder-val="{{ false }}">
-  <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:14px">
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+  <div class="rf-diff-wrap" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:14px">
+    <div class="rf-diff-toolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase">Compare two documents</span>
       <div style="flex:1"></div>
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDiffBeautify }}">{{ iconWand }}Beautify both</button>
@@ -209,7 +209,7 @@
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDiffSample }}">{{ iconDiffFile }}Load sample pair</button>
       <span style="{{ diffSummaryStyle }}">{{ diffSummary }}</span>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:0 0 30%;min-height:120px">
+    <div class="rf-diff-input-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:0 0 30%;min-height:120px">
       <textarea class="rf-ta rf-scroll" spellcheck="false" placeholder="Original / version A…" value="{{ diffA }}" onchange="{{ onDiffAChange }}" style="width:100%;height:100%;resize:none;border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);background:var(--panel,#fff);color:var(--text,#1b1e2b);font:400 12.5px/19px var(--font-mono);padding:12px;outline:none"></textarea>
       <textarea class="rf-ta rf-scroll" spellcheck="false" placeholder="Changed / version B…" value="{{ diffB }}" onchange="{{ onDiffBChange }}" style="width:100%;height:100%;resize:none;border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);background:var(--panel,#fff);color:var(--text,#1b1e2b);font:400 12.5px/19px var(--font-mono);padding:12px;outline:none"></textarea>
     </div>
