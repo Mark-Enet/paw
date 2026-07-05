@@ -73,12 +73,45 @@ const TABLE_JSON_MAX_DEPTH = 2;
 const TABLE_XML_MIN_SUITABLE_ROWS = 1;
 const MAX_PERSIST = 500000;
 
-function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
-function b64decode(str) { return decodeURIComponent(escape(atob(str))); }
+function utf8ToBinary(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return bin;
+}
+
+function binaryToUtf8(bin) {
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function b64urlEncode(str) {
+  return btoa(utf8ToBinary(str)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function b64urlDecode(data) {
+  const pad = data.length % 4;
+  const norm = data.replace(/-/g, '+').replace(/_/g, '/') + (pad ? '='.repeat(4 - pad) : '');
+  return binaryToUtf8(atob(norm));
+}
+
+function decodeSharePayload(data) {
+  // Accept new base64url payloads and legacy base64 payloads.
+  try { return b64urlDecode(data); } catch (e) {}
+  return binaryToUtf8(atob(data));
+}
+
 function loadPersisted() {
   let data = {};
   try { const raw = localStorage.getItem(LS_KEY); if (raw) data = JSON.parse(raw) || {}; } catch (e) {}
-  try { const hsh = (location.hash || '').replace(/^#/, ''); if (hsh.indexOf('d=') === 0) { const d = JSON.parse(b64decode(hsh.slice(2))); if (d && typeof d === 'object') data = Object.assign({}, data, d); } } catch (e) {}
+  try {
+    const hsh = (location.hash || '').replace(/^#/, '');
+    if (hsh.indexOf('d=') === 0) {
+      const d = JSON.parse(decodeSharePayload(hsh.slice(2)));
+      if (d && typeof d === 'object') data = Object.assign({}, data, d);
+    }
+  } catch (e) {}
   if (data && typeof data.input === 'string' && data.input.length > MAX_PERSIST) delete data.input;
   return data;
 }
@@ -197,15 +230,40 @@ class Component extends DCLogic {
     else this.setState({ collapsed: new Set(this.allContainerPaths(m.node).filter(p => m.node && p !== m.node.path)) });
   }
 
-  doShare() {
+  async writeClipboard(text) {
+    const value = text == null ? '' : String(text);
+    if (navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(value);
+        return true;
+      } catch (e) {}
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      const ok = document.execCommand && document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e) { return false; }
+  }
+
+  async doShare() {
     const S = this.state;
     const data = { theme: S.theme, direction: S.direction, view: S.view, indent: S.indent, mode: S.mode, input: S.input };
     try {
-      const hash = 'd=' + b64encode(JSON.stringify(data));
+      const hash = 'd=' + b64urlEncode(JSON.stringify(data));
       const url = location.origin + location.pathname + location.search + '#' + hash;
       location.hash = hash;
-      if (navigator.clipboard) navigator.clipboard.writeText(url);
-      this.flashShare('Link copied \u2713');
+      const copied = await this.writeClipboard(url);
+      this.flashShare(copied ? 'Link copied \u2713' : 'Link ready (copy blocked)');
     } catch (e) { this.flashShare('Link too large'); }
   }
 
