@@ -9,6 +9,7 @@ convert JSON ↔ XML, query with JSONPath / XPath, and diff two documents.
 - The tool saves your document, theme, and layout to the browser's local storage and
   restores them on reload. "Share link" (or ⌘/Ctrl+S) encodes the current state into a
   URL you can bookmark or send.
-- Fonts load from Google Fonts (needs a connection). Everything else runs locally in the
-  browser — no data ever leaves the page.
-- To update the page later, replace `index.html` with a newer build and commit.
+- All assets, including fonts and runtime dependencies, are served from this repo.
+  The app works fully offline once loaded from static files.
+- To update the app, commit the changed static files (typically `index.html`, `css/main.css`,
+  `js/app.js`, `js/dc-runtime.js`, `js/icons.js`, and any assets under `fonts/`).
