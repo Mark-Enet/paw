@@ -81,8 +81,8 @@
     </div>
 
     <button title="Keyboard shortcuts (?)" onclick="{{ onToggleHelp }}" style="width:32px;height:32px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);color:var(--text-dim,#565d73);font:700 15px/1 var(--font-ui);cursor:pointer" style-hover="background:var(--panel-2,#eef0f7)">?</button>
-    <button style="display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);color:var(--text,#1b1e2b);font:500 12.5px/1 var(--font-ui);cursor:pointer" style-hover="background:var(--panel-2,#eef0f7)" onclick="{{ onThemeToggle }}">
-      {{ iconSun }}
+    <button title="{{ themeToggleTitle }}" aria-label="{{ themeToggleTitle }}" style="display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);color:var(--text,#1b1e2b);font:500 12.5px/1 var(--font-ui);cursor:pointer" style-hover="background:var(--panel-2,#eef0f7)" onclick="{{ onThemeToggle }}">
+      {{ themeIcon }}
       {{ themeLabel }}
     </button>
   </header>

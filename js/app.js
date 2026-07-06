@@ -1465,6 +1465,8 @@ class Component extends DCLogic {
       dirAuroraStyle: seg(dir === 'aurora'), dirSlateStyle: seg(dir === 'slate'), dirPaperStyle: seg(dir === 'paper'),
       onDirAurora: () => this.setState({ direction: 'aurora' }), onDirSlate: () => this.setState({ direction: 'slate' }), onDirPaper: () => this.setState({ direction: 'paper' }),
       onThemeToggle: () => this.setState({ theme: theme === 'dark' ? 'light' : 'dark' }),
+      themeToggleTitle: theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+      themeIcon: theme === 'dark' ? (window.PAW_ICONS ? window.PAW_ICONS.moon() : null) : (window.PAW_ICONS ? window.PAW_ICONS.sun() : null),
       themeLabel: theme === 'dark' ? 'Dark' : 'Light', themeDotBg: theme === 'dark' ? tok.text : 'transparent',
       formatGridClass, sourcePanelClass, explorerPanelClass,
       sourceFullscreenLabel: S.fullscreenPanel === 'source' ? 'Exit fullscreen' : 'Fullscreen',

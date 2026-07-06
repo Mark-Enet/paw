@@ -64,6 +64,14 @@
       );
     },
 
+    // Theme-toggle: moon crescent
+    moon: function () {
+      return ic(
+        '<path d="M9.8 2.4a4.7 4.7 0 11-5.6 7 4.9 4.9 0 005.6-7z"/>',
+        13, 13
+      );
+    },
+
     // Beautify / magic wand with sparkle
     wand: function () {
       return ic(
