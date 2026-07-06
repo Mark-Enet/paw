@@ -152,6 +152,12 @@
           <button style="{{ viewTableStyle }}" onclick="{{ onViewTable }}">{{ iconTable }}Table</button>
           <button style="{{ viewRawStyle }}" onclick="{{ onViewRaw }}">{{ iconCode }}Raw</button>
         </div>
+        <sc-if value="{{ isTableView }}" hint-placeholder-val="{{ false }}">
+          <div class="rf-explorer-seg">
+            <button style="{{ tableModePathStyle }}" onclick="{{ onTableModePath }}">Path Table</button>
+            <button style="{{ tableModeRecordStyle }}" onclick="{{ onTableModeRecord }}">Record Table</button>
+          </div>
+        </sc-if>
         <sc-if value="{{ isTreeView }}" hint-placeholder-val="{{ false }}">
           <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onExpandAll }}">{{ iconExpand }}Expand all</button>
           <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCollapseAll }}">{{ iconCollapse }}Collapse all</button>

@@ -67,7 +67,7 @@ const LS_KEY = 'refract.studio.v2';
 const ROW_H = 22;
 const TABLE_ROW_H = 34;
 const TABLE_ROW_MIN_H = TABLE_ROW_H - 2;
-const TABLE_COLS = 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(74px,.6fr) auto';
+const TABLE_COLS = 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(150px,1fr)';
 const INDEXED_SEG_RE = /\[\d+\]/;
 const TABLE_JSON_MAX_DEPTH = 2;
 const TABLE_XML_MIN_SUITABLE_ROWS = 1;
@@ -123,6 +123,8 @@ function loadPersisted() {
   if (data.explorerMode !== 'search' && data.explorerMode !== 'query') delete data.explorerMode;
   if (data.indent !== '2' && data.indent !== '4' && data.indent !== 'tab') delete data.indent;
   if (data.fullscreenPanel !== 'source' && data.fullscreenPanel !== 'explorer') delete data.fullscreenPanel;
+  if (data.tableMode !== 'path' && data.tableMode !== 'record') delete data.tableMode;
+  if (typeof data.tableSourcePath !== 'string') delete data.tableSourcePath;
   return data;
 }
 
@@ -148,6 +150,8 @@ class Component extends DCLogic {
       query: P.query || '',
       copied: null,
       dragging: false,
+      tableMode: P.tableMode || 'path',
+      tableSourcePath: P.tableSourcePath || '/root',
       diffA: P.diffA != null ? P.diffA : SAMPLE_DIFF_A,
       diffB: P.diffB != null ? P.diffB : SAMPLE_DIFF_B,
       scrollTop: 0,
@@ -211,7 +215,7 @@ class Component extends DCLogic {
         box.scrollTop = target; this.setState({ scrollTop: target });
       }
     }
-    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
+    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
       this.schedulePersist();
     }
   }
@@ -230,6 +234,8 @@ class Component extends DCLogic {
       search: S.search,
       query: S.query,
       fullscreenPanel: S.fullscreenPanel,
+      tableMode: S.tableMode,
+      tableSourcePath: S.tableSourcePath,
       diffA: S.diffA,
       diffB: S.diffB,
       input: S.input,
@@ -254,6 +260,8 @@ class Component extends DCLogic {
         search: data.search,
         query: data.query,
         fullscreenPanel: data.fullscreenPanel,
+        tableMode: data.tableMode,
+        tableSourcePath: data.tableSourcePath,
         input: data.input,
       },
       {
@@ -266,6 +274,8 @@ class Component extends DCLogic {
         searchMode: data.searchMode,
         explorerMode: data.explorerMode,
         fullscreenPanel: data.fullscreenPanel,
+        tableMode: data.tableMode,
+        tableSourcePath: data.tableSourcePath,
       }
     ];
 
@@ -312,6 +322,68 @@ class Component extends DCLogic {
     const m = this.buildModel();
     if (this.state.collapsed.size > 0) this.setState({ collapsed: new Set() });
     else this.setState({ collapsed: new Set(this.allContainerPaths(m.node).filter(p => m.node && p !== m.node.path)) });
+  }
+
+  locateNode(node, path) {
+    if (!node || !path) return null;
+    if (node.path === path) return node;
+    if (!node.children || !node.children.length) return null;
+    for (const child of node.children) {
+      const found = this.locateNode(child, path);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  selectTableSource(path, mode) {
+    this.setState({
+      tableSourcePath: path,
+      view: 'table',
+      tableMode: mode || this.state.tableMode,
+    });
+  }
+
+  tableSourceTrail(path) {
+    const safePath = (path && String(path).startsWith('/')) ? String(path) : '/root';
+    const parts = safePath.split('/').filter(Boolean);
+    if (!parts.length) return [{ label: 'root', path: '/root', isActive: true }];
+    let acc = '';
+    return parts.map((seg, idx) => {
+      acc += '/' + seg;
+      const isIndex = /^\d+$/.test(seg);
+      return {
+        label: idx === 0 ? 'root' : (isIndex ? ('[' + seg + ']') : seg),
+        path: acc,
+        isActive: idx === parts.length - 1,
+      };
+    });
+  }
+
+  renderTableSourceIndicator(sourceNode, tok) {
+    const sourcePath = sourceNode && sourceNode.path ? sourceNode.path : '/root';
+    const trail = this.tableSourceTrail(sourcePath);
+    const trailEls = [];
+    trail.forEach((part, idx) => {
+      if (idx) trailEls.push(h('span', { key: part.path + '#sep', style: { color: tok.textFaint, font: '600 10px/1 ' + tok.fontUi } }, '›'));
+      trailEls.push(h('button', {
+        key: part.path,
+        onClick: (e) => { e.stopPropagation(); this.selectTableSource(part.path); },
+        title: part.path,
+        style: {
+          font: '600 11px/1 ' + tok.fontMono,
+          color: part.isActive ? tok.accent : tok.textDim,
+          background: part.isActive ? tok.accentWeak : tok.panel2,
+          border: '1px solid ' + tok.border,
+          borderRadius: '6px',
+          padding: '3px 6px',
+          cursor: 'pointer'
+        }
+      }, part.label));
+    });
+    return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' } },
+      h('span', { style: { color: tok.textDim, font: '600 11px/1 ' + tok.fontUi } }, 'Source:'),
+      trailEls
+    );
   }
 
   async writeClipboard(text) {
@@ -556,7 +628,7 @@ class Component extends DCLogic {
       : (ctx.parentArray ? h('span', { style: { color: tok.textFaint, marginRight: '6px' } }, n.key + ':') : null);
 
     const acts = h('span', { className: 'rf-acts', style: { display: 'inline-flex', gap: '4px', marginLeft: '10px', verticalAlign: 'middle' } },
-      this.miniBtn('path', n, ctx), this.miniBtn('value', n, ctx));
+      this.miniBtn('path', n, ctx), this.miniBtn('value', n, ctx), isContainer ? this.miniBtn('table', n, ctx) : null);
 
     if (!isContainer) {
       const isStr = n.vType === 'string';
@@ -598,13 +670,15 @@ class Component extends DCLogic {
 
   miniBtn(type, n, ctx) {
     const tok = ctx.tok;
-    const label = type === 'path' ? 'path' : 'value';
+    const label = type === 'path' ? 'path' : (type === 'table' ? 'tbl' : 'value');
     const copiedKey = n.path + ':' + type;
     const isCopied = this.state.copied === copiedKey;
+    const isTable = type === 'table';
+    const isSelectedTableSource = isTable && this.state.tableSourcePath === n.path;
     return h('button', {
-      onClick: (e) => { e.stopPropagation(); this.copy(type === 'path' ? n.jpath : this.nodeCopyText(n), copiedKey); },
-      title: type === 'path' ? n.jpath : 'Copy value',
-      style: { font: '600 9.5px/1 ' + tok.fontUi, letterSpacing: '.03em', textTransform: 'uppercase', color: isCopied ? tok.sem.ok : tok.textDim, background: isCopied ? tok.sem.okW : tok.panel2, border: '1px solid ' + tok.border, borderRadius: '4px', padding: '2px 5px', cursor: 'pointer' }
+      onClick: (e) => { e.stopPropagation(); if (isTable) this.selectTableSource(n.path); else this.copy(type === 'path' ? n.jpath : this.nodeCopyText(n), copiedKey); },
+      title: type === 'path' ? n.jpath : (isTable ? 'Table this node' : 'Copy value'),
+      style: { font: '600 9.5px/1 ' + tok.fontUi, letterSpacing: '.03em', textTransform: 'uppercase', color: isTable ? (isSelectedTableSource ? tok.accent : tok.textDim) : (isCopied ? tok.sem.ok : tok.textDim), background: isTable ? (isSelectedTableSource ? tok.accentWeak : tok.panel2) : (isCopied ? tok.sem.okW : tok.panel2), border: '1px solid ' + tok.border, borderRadius: '4px', padding: '2px 5px', cursor: 'pointer' }
     }, isCopied ? '✓' : label);
   }
 
@@ -971,7 +1045,7 @@ class Component extends DCLogic {
     const keyEl = row.arr
       ? h('span', { style: { color: tok.textFaint, marginRight: '7px', flex: '0 0 auto' } }, n.key + ':')
       : h('span', { style: { flex: '0 0 auto' } }, h('span', { style: { color: n.vType === 'attr' ? tok.syn.attr : tok.syn.key } }, this.hl(String(n.key), ctx, n.path, 'k')), h('span', { style: { color: tok.syn.punct } }, ': '));
-    const acts = h('span', { className: 'rf-acts', style: { position: 'absolute', right: '6px', top: 0, height: ROW_H + 'px', display: 'inline-flex', alignItems: 'center', gap: '4px', paddingLeft: '16px', background: 'linear-gradient(90deg, transparent, ' + tok.panel + ' 40%)' } }, this.miniBtn('path', n, ctx), this.miniBtn('value', n, ctx));
+    const acts = h('span', { className: 'rf-acts', style: { position: 'absolute', right: '6px', top: 0, height: ROW_H + 'px', display: 'inline-flex', alignItems: 'center', gap: '4px', paddingLeft: '16px', background: 'linear-gradient(90deg, transparent, ' + tok.panel + ' 40%)' } }, this.miniBtn('path', n, ctx), this.miniBtn('value', n, ctx), row.type === 'leaf' ? null : this.miniBtn('table', n, ctx));
     const tri = (open) => h('span', { style: { width: '13px', flex: '0 0 auto', display: 'inline-block', color: tok.textFaint, fontSize: '9px', lineHeight: ROW_H + 'px', transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform .1s' } }, '\u25BC');
     if (row.type === 'leaf') {
       const isStr = n.vType === 'string';
@@ -1005,11 +1079,8 @@ class Component extends DCLogic {
     if (!node || !parsed || !parsed.ok) return { rows, suitable: false };
     const term = (ctx.term || '').toLowerCase();
     const inFilter = ctx.filter && !!term;
-    let hasArray = false, maxDepth = 0;
     const walk = (n, depth) => {
       if (!n) return;
-      if (depth > maxDepth) maxDepth = depth;
-      if (n.kind === 'array') hasArray = true;
       if (n.kind === 'leaf') {
         const key = n.key == null ? '' : String(n.key);
         const value = n.vType === 'null' ? 'null' : String(n.disp == null ? '' : n.disp);
@@ -1022,32 +1093,87 @@ class Component extends DCLogic {
       if (n.children) n.children.forEach(c => walk(c, depth + 1));
     };
     walk(node, 0);
+    return { rows, suitable: rows.length > 0 };
+  }
 
-    let suitable = rows.length > 0 && node.kind !== 'leaf';
-    if (suitable && parsed.format === 'json') {
-      const rootType = this.jsonType(parsed.value);
-      if (rootType !== 'array' && rootType !== 'object') suitable = false;
-      else if (!hasArray && maxDepth > TABLE_JSON_MAX_DEPTH) suitable = false;
-    }
-    if (suitable && parsed.format === 'xml') {
-      const hasIndexedPath = rows.some(r => INDEXED_SEG_RE.test(r.path));
-      if (!hasIndexedPath && rows.length <= TABLE_XML_MIN_SUITABLE_ROWS) suitable = false;
-    }
-    return { rows, suitable };
+  recordTableRows(node, parsed, ctx) {
+    const rows = [];
+    if (!node || !parsed || !parsed.ok) return { rows, columns: [], suitable: false };
+    if (node.kind === 'leaf') return { rows, columns: [], suitable: false };
+
+    const term = (ctx.term || '').toLowerCase();
+    const inFilter = ctx.filter && !!term;
+    const rowNodes = node.kind === 'array' && node.children && node.children.length ? node.children : [node];
+    const columns = [];
+    const seen = new Set();
+
+    const addColumn = (name) => {
+      if (!name || seen.has(name)) return;
+      seen.add(name);
+      columns.push(name);
+    };
+
+    const cellText = (n) => {
+      if (!n) return '';
+      if (n.kind === 'leaf') return n.vType === 'null' ? 'null' : String(n.disp == null ? '' : n.disp);
+      return this.nodeCopyText(n);
+    };
+
+    const rowFields = (rowNode) => {
+      const fields = {};
+      const pushField = (key, value) => {
+        if (!key) return;
+        fields[key] = value;
+        addColumn(key);
+      };
+
+      if (!rowNode.children || !rowNode.children.length) {
+        pushField('value', cellText(rowNode));
+        return fields;
+      }
+
+      rowNode.children.forEach(child => {
+        const key = child.key == null ? '' : String(child.key);
+        if (!key) return;
+        pushField(key, cellText(child));
+      });
+
+      if (!Object.keys(fields).length) pushField('value', cellText(rowNode));
+      return fields;
+    };
+
+    rowNodes.forEach((rowNode, index) => {
+      const fields = rowFields(rowNode);
+      const rowLabel = rowNode.jpath || rowNode.path || String(index);
+      const matches = term
+        ? Object.keys(fields).some(key => key.toLowerCase().includes(term) || String(fields[key]).toLowerCase().includes(term)) || rowLabel.toLowerCase().includes(term)
+        : true;
+      if (inFilter && !matches) return;
+      rows.push({
+        id: rowNode.path + '#r' + index,
+        node: rowNode,
+        path: rowLabel,
+        index,
+        fields,
+      });
+    });
+
+    return { rows, columns, suitable: rows.length > 0 };
   }
 
   renderTableRow(row, ctx) {
     const tok = ctx.tok, n = row.node;
     const copyPathKey = n.path + ':path';
     const copyValKey = n.path + ':value';
+    const tblSelected = this.state.tableSourcePath === n.path;
     const pathCopied = this.state.copied === copyPathKey;
     const valCopied = this.state.copied === copyValKey;
-    return h('div', { className: 'rf-table-row rf-row', style: { display: 'grid', gridTemplateColumns: TABLE_COLS, gap: '10px', alignItems: 'center', minHeight: TABLE_ROW_MIN_H + 'px', padding: '6px 10px', borderBottom: '1px solid ' + tok.border + '66' } },
+    return h('div', { className: 'rf-table-row rf-row', style: { position: 'relative', display: 'grid', gridTemplateColumns: TABLE_COLS, gap: '10px', alignItems: 'center', minHeight: TABLE_ROW_MIN_H + 'px', padding: '6px 170px 6px 10px', borderBottom: '1px solid ' + tok.border + '66' } },
       h('div', { className: 'rf-table-cell-path', title: row.path, style: { color: tok.accent, font: '600 11px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, row.path),
       h('div', { className: 'rf-table-cell-key', title: row.key, style: { color: n.vType === 'attr' ? tok.syn.attr : tok.syn.key, font: '500 12px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, this.hl(row.key, ctx, n.path, 'k')),
       h('div', { className: 'rf-table-cell-value', title: row.value, style: { color: this.valColor(n.vType, tok), font: '400 12px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, this.hl(row.value, ctx, n.path, 'v')),
       h('div', { className: 'rf-table-cell-type', style: { color: tok.textDim, font: '600 10.5px/1 ' + tok.fontUi, textTransform: 'uppercase', letterSpacing: '.05em' } }, row.type),
-      h('span', { className: 'rf-acts rf-table-acts', style: { display: 'inline-flex', gap: '4px', justifySelf: 'end' } },
+      h('span', { className: 'rf-acts rf-table-acts', style: { position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', display: 'inline-flex', gap: '4px', alignItems: 'center', paddingLeft: '14px', background: 'linear-gradient(90deg, transparent, ' + tok.panel + ' 40%)' } },
         h('button', {
           onClick: (e) => { e.stopPropagation(); this.copy(row.path, copyPathKey); },
           title: row.path,
@@ -1057,7 +1183,36 @@ class Component extends DCLogic {
           onClick: (e) => { e.stopPropagation(); this.copy(this.nodeCopyText(n), copyValKey); },
           title: 'Copy value',
           style: { font: '600 9.5px/1 ' + tok.fontUi, letterSpacing: '.03em', textTransform: 'uppercase', color: valCopied ? tok.sem.ok : tok.textDim, background: valCopied ? tok.sem.okW : tok.panel2, border: '1px solid ' + tok.border, borderRadius: '4px', padding: '2px 5px', cursor: 'pointer' }
-        }, valCopied ? '✓' : 'value')
+        }, valCopied ? '✓' : 'value'),
+        h('button', {
+          onClick: (e) => { e.stopPropagation(); this.selectTableSource(n.path); },
+          title: 'Set table source to this row path',
+          style: { font: '600 9.5px/1 ' + tok.fontUi, letterSpacing: '.03em', textTransform: 'uppercase', color: tblSelected ? tok.accent : tok.textDim, background: tblSelected ? tok.accentWeak : tok.panel2, border: '1px solid ' + tok.border, borderRadius: '4px', padding: '2px 5px', cursor: 'pointer' }
+        }, 'tbl')
+      )
+    );
+  }
+
+  renderRecordRow(row, ctx, columns) {
+    const tok = ctx.tok;
+    const pathCopied = this.state.copied === row.path + ':path';
+    const rowCopied = this.state.copied === row.path + ':row';
+    const gridTemplateColumns = ['minmax(220px,1.4fr)'].concat(columns.map(() => 'minmax(140px,1fr)')).concat('auto').join(' ');
+
+    return h('div', { className: 'rf-record-row rf-row', style: { display: 'grid', gridTemplateColumns, gap: '10px', alignItems: 'stretch', minHeight: TABLE_ROW_MIN_H + 'px', padding: '6px 10px', borderBottom: '1px solid ' + tok.border + '66' } },
+      h('div', { className: 'rf-record-cell-path', title: row.path, style: { color: tok.accent, font: '600 11px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', alignSelf: 'center' } }, row.path),
+      columns.map(col => h('div', { key: col, className: 'rf-record-cell', title: row.fields[col] || '', style: { color: tok.text, font: '400 12px/1.5 ' + tok.fontMono, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflow: 'visible', minWidth: 0 } }, row.fields[col] == null || row.fields[col] === '' ? '—' : row.fields[col])),
+      h('span', { className: 'rf-acts rf-record-acts', style: { display: 'inline-flex', gap: '4px', justifySelf: 'end', alignSelf: 'center' } },
+        h('button', {
+          onClick: (e) => { e.stopPropagation(); this.copy(row.path, row.path + ':path'); },
+          title: row.path,
+          style: { font: '600 9.5px/1 ' + tok.fontUi, letterSpacing: '.03em', textTransform: 'uppercase', color: pathCopied ? tok.sem.ok : tok.textDim, background: pathCopied ? tok.sem.okW : tok.panel2, border: '1px solid ' + tok.border, borderRadius: '4px', padding: '2px 5px', cursor: 'pointer' }
+        }, pathCopied ? '✓' : 'path'),
+        h('button', {
+          onClick: (e) => { e.stopPropagation(); this.copy(JSON.stringify(row.fields, null, 2), row.path + ':row'); },
+          title: 'Copy row',
+          style: { font: '600 9.5px/1 ' + tok.fontUi, letterSpacing: '.03em', textTransform: 'uppercase', color: rowCopied ? tok.sem.ok : tok.textDim, background: rowCopied ? tok.sem.okW : tok.panel2, border: '1px solid ' + tok.border, borderRadius: '4px', padding: '2px 5px', cursor: 'pointer' }
+        }, rowCopied ? '✓' : 'row')
       )
     );
   }
@@ -1161,31 +1316,65 @@ class Component extends DCLogic {
         showLN ? h('pre', { style: { margin: 0, padding: '4px 10px 4px 0', textAlign: 'right', color: tok.textFaint, font: '400 13px/20px ' + tok.fontMono, borderRight: '1px solid ' + tok.border, flex: '0 0 auto' } }, lines.map((_, i) => (i + 1)).join('\n')) : null,
         h('pre', { style: { margin: 0, padding: '4px 0 4px 12px', font: '400 13px/20px ' + tok.fontMono, whiteSpace: 'pre-wrap', wordBreak: 'break-word', flex: 1, minWidth: 0 } }, src.length <= 60000 ? this.highlight(src, parsed.format, tok) : src));
     } else if (S.view === 'table') {
+      const tableMode = S.tableMode || 'path';
       const filter = S.searchMode === 'filter';
-      if (!this._tableCache || this._tableCache.input !== S.docInput || this._tableCache.term !== term || this._tableCache.mode !== S.searchMode) {
-        this._tableCache = { input: S.docInput, term, mode: S.searchMode, res: this.tableRows(node, parsed, { term, filter }) };
+      const tableSourceNode = node ? (this.locateNode(node, S.tableSourcePath) || node) : null;
+      const tableSourcePath = tableSourceNode ? tableSourceNode.path : '';
+      const tableCacheKey = S.docInput + '|' + tableMode + '|' + tableSourcePath + '|' + term + '|' + S.searchMode;
+      if (!this._tableCache || this._tableCache.cacheKey !== tableCacheKey) {
+        const res = tableMode === 'record'
+          ? this.recordTableRows(tableSourceNode, parsed, { term, filter })
+          : this.tableRows(tableSourceNode, parsed, { term, filter });
+        this._tableCache = { cacheKey: tableCacheKey, mode: tableMode, sourcePath: tableSourcePath, res };
       }
       const table = this._tableCache.res;
       const rows = table.rows;
       this._activeRowIndex = -1;
       if (activePath) { const np = activePath.replace(/#[kv]$/, ''); this._activeRowIndex = rows.findIndex(r => r.node.path === np); }
-      if (!table.suitable) {
+      if (tableMode === 'record' && tableSourceNode && tableSourceNode.kind === 'leaf') {
         explorerEl = h('div', { style: { padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '12px' } },
-          h('div', { style: { color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, 'This document structure is not suitable for table view.'),
-          h('button', { style: btnStyle, onClick: () => this.setState({ view: 'tree' }) }, 'Switch to Tree'));
+          h('div', { style: { color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, 'Record Table needs an object, array, or element node. Pick a container in the tree, or switch back to Path Table.'),
+          h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+            h('button', { style: btnStyle, onClick: () => this.setState({ tableMode: 'path' }) }, 'Switch to Path Table'),
+            h('button', { style: btnStyle, onClick: () => this.selectTableSource('/root') }, 'Use Root')
+          ));
+      } else if (!table.suitable) {
+        explorerEl = h('div', { style: { padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '12px' } },
+          h('div', { style: { color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, tableMode === 'record' ? 'This selected node cannot be tabularized.' : 'This document structure is not suitable for table view.'),
+          h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+            h('button', { style: btnStyle, onClick: () => this.setState({ view: 'tree' }) }, 'Switch to Tree'),
+            h('button', { style: btnStyle, onClick: () => this.setState({ tableMode: 'path' }) }, 'Switch to Path Table')
+          ));
       } else if (!rows.length) {
         explorerEl = h('div', { style: { padding: '24px', color: tok.textFaint, font: '500 13px/1.5 ' + tok.fontUi } }, 'No table rows match the current filter.');
       } else {
-        explorerEl = h('div', { className: 'rf-table', style: { minWidth: 0 } },
-          h('div', { className: 'rf-table-head', style: { position: 'sticky', top: 0, zIndex: 2, display: 'grid', gridTemplateColumns: TABLE_COLS, gap: '10px', padding: '8px 10px', borderBottom: '1px solid ' + tok.border, background: tok.panel2, color: tok.textFaint, font: '700 10.5px/1 ' + tok.fontUi, letterSpacing: '.06em', textTransform: 'uppercase' } },
-            h('span', {}, 'Path'),
-            h('span', {}, 'Key'),
-            h('span', {}, 'Value'),
-            h('span', {}, 'Type'),
-            h('span', { style: { justifySelf: 'end' } }, 'Copy')
-          ),
-          this.windowed(rows, ctx, this.renderTableRow.bind(this), TABLE_ROW_H)
+        const sourceLine = h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderBottom: '1px solid ' + tok.border, background: tok.panel2, color: tok.textDim, font: '600 11px/1 ' + tok.fontUi, letterSpacing: '.04em', textTransform: 'uppercase', flexWrap: 'wrap' } },
+          this.renderTableSourceIndicator(tableSourceNode, tok)
         );
+        if (tableMode === 'record') {
+          const recordColumns = table.columns || [];
+          const recordGridColumns = ['minmax(220px,1.4fr)'].concat(recordColumns.map(() => 'minmax(140px,1fr)')).concat('auto').join(' ');
+          explorerEl = h('div', { className: 'rf-table rf-record-table', style: { minWidth: 0 } },
+            sourceLine,
+            h('div', { className: 'rf-table-head rf-record-head', style: { position: 'sticky', top: 0, zIndex: 2, display: 'grid', gridTemplateColumns: recordGridColumns, gap: '10px', padding: '8px 10px', borderBottom: '1px solid ' + tok.border, background: tok.panel2, color: tok.textFaint, font: '700 10.5px/1 ' + tok.fontUi, letterSpacing: '.06em', textTransform: 'uppercase' } },
+              h('span', {}, 'Path'),
+              recordColumns.map(col => h('span', { key: col }, col)),
+              h('span', { style: { justifySelf: 'end' } }, 'Copy')
+            ),
+            h('div', { className: 'rf-record-body' }, rows.map(row => this.renderRecordRow(row, ctx, recordColumns)))
+          );
+        } else {
+          explorerEl = h('div', { className: 'rf-table', style: { minWidth: 0 } },
+            sourceLine,
+            h('div', { className: 'rf-table-head', style: { position: 'sticky', top: 0, zIndex: 2, display: 'grid', gridTemplateColumns: TABLE_COLS, gap: '10px', padding: '8px 10px', borderBottom: '1px solid ' + tok.border, background: tok.panel2, color: tok.textFaint, font: '700 10.5px/1 ' + tok.fontUi, letterSpacing: '.06em', textTransform: 'uppercase' } },
+              h('span', {}, 'Path'),
+              h('span', {}, 'Key'),
+              h('span', {}, 'Value'),
+              h('span', {}, 'Type')
+            ),
+            this.windowed(rows, ctx, this.renderTableRow.bind(this), TABLE_ROW_H)
+          );
+        }
       }
     } else if (!node) {
       explorerEl = h('div', { style: { padding: '28px 24px', color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, parsed.empty ? 'Nothing to explore yet. Paste JSON or XML, drop a file, or load the sample to build an interactive tree.' : h('span', {}, h('span', { style: { color: tok.sem.err, fontWeight: 700 } }, 'Can\u2019t build tree. '), 'Fix the ' + (parsed.format || '').toUpperCase() + ' error on the left \u2014 the tree updates live once it\u2019s valid.'));
@@ -1240,6 +1429,9 @@ class Component extends DCLogic {
     const formatGridClass = 'rf-format-grid' + (S.fullscreenPanel === 'source' ? ' rf-fs-source' : (S.fullscreenPanel === 'explorer' ? ' rf-fs-explorer' : ''));
     const sourcePanelClass = 'rf-panel-source' + (S.fullscreenPanel === 'source' ? ' rf-panel-fullscreen' : '');
     const explorerPanelClass = 'rf-panel-explorer' + (S.fullscreenPanel === 'explorer' ? ' rf-panel-fullscreen' : '');
+    const tableMode = S.tableMode || 'path';
+    const tableSourceNode = node ? (this.locateNode(node, S.tableSourcePath) || node) : null;
+    const tableRootPath = node ? node.path : '/root';
 
     return {
       themeVars,
@@ -1257,6 +1449,11 @@ class Component extends DCLogic {
       explorerFullscreenIcon: S.fullscreenPanel === 'explorer' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
       onSourceFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'source' ? null : 'source' })),
       onExplorerFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'explorer' ? null : 'explorer' })),
+      tableModePathStyle: seg(tableMode === 'path'),
+      tableModeRecordStyle: seg(tableMode === 'record'),
+      onTableModePath: () => this.setState({ tableMode: 'path' }),
+      onTableModeRecord: () => this.setState({ tableMode: 'record' }),
+      onTableSourceRoot: () => this.selectTableSource(tableRootPath),
 
       btnStyle, fsBtnStyle, btnHover, btnGhost, navBtnStyle,
       formatBadge: parsed.format === 'empty' ? 'EMPTY' : parsed.format.toUpperCase(), badgeStyle,
@@ -1298,7 +1495,7 @@ class Component extends DCLogic {
       statusText, statusColor, statusDot, statusDotHalo, hasError, errorLine,
       onJumpError: () => { const ta = this.editorRef.current; if (ta && errorLine) { const line = errorLine; const upto = S.input.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0); ta.focus(); ta.setSelectionRange(upto, upto); const lh = 20; ta.scrollTop = Math.max(0, (line - 3) * lh); if (this.highlightRef.current) this.highlightRef.current.scrollTop = ta.scrollTop; if (this.gutterRef.current) this.gutterRef.current.scrollTop = ta.scrollTop; } },
 
-      view: S.view, isTreeView: S.view === 'tree', viewTreeStyle: segFlat(S.view === 'tree'), viewRawStyle: segFlat(S.view === 'raw'), viewTableStyle: segFlat(S.view === 'table'),
+      view: S.view, isTreeView: S.view === 'tree', isTableView: S.view === 'table', viewTreeStyle: segFlat(S.view === 'tree'), viewRawStyle: segFlat(S.view === 'raw'), viewTableStyle: segFlat(S.view === 'table'),
       onViewTree: () => this.setState({ view: 'tree' }), onViewRaw: () => this.setState({ view: 'raw' }), onViewTable: () => this.setState({ view: 'table' }),
       onExpandAll: () => this.setState({ collapsed: new Set() }),
       onCollapseAll: () => this.setState({ collapsed: new Set(this.allContainerPaths(node).filter(p => p !== '/root' && node && p !== node.path)) }),
