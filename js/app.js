@@ -102,6 +102,14 @@ function decodeSharePayload(data) {
   return binaryToUtf8(atob(data));
 }
 
+function isApplePlatform() {
+  if (typeof navigator === 'undefined') return false;
+  const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+  const ua = navigator.userAgent || '';
+  const s = (platform + ' ' + ua).toLowerCase();
+  return /mac|iphone|ipad|ipod/.test(s);
+}
+
 function loadPersisted() {
   let data = {};
   try { const raw = localStorage.getItem(LS_KEY); if (raw) data = JSON.parse(raw) || {}; } catch (e) {}
@@ -1456,6 +1464,13 @@ class Component extends DCLogic {
     const tableMode = S.tableMode || 'path';
     const tableSourceNode = node ? (this.locateNode(node, S.tableSourcePath) || node) : null;
     const tableRootPath = node ? node.path : '/root';
+    const applePlatform = isApplePlatform();
+    const modifierKeyLabel = applePlatform ? '⌘' : 'Ctrl';
+    const searchShortcutLabel = applePlatform ? '⌘F' : 'Ctrl + F';
+    const searchPlaceholder = 'Search keys & values…  (' + searchShortcutLabel + ')';
+    const shortcutsHint = applePlatform
+      ? 'Using Command shortcuts for Apple devices. Your document, theme and layout are saved automatically.'
+      : 'Using Ctrl shortcuts for Windows and Linux. Your document, theme and layout are saved automatically.';
 
     return {
       themeVars,
@@ -1527,6 +1542,7 @@ class Component extends DCLogic {
       onCollapseAll: () => this.setState({ collapsed: new Set(this.allContainerPaths(node).filter(p => p !== '/root' && node && p !== node.path)) }),
 
       search: S.search, onSearch: (e) => this.setState({ search: e.target.value, matchIndex: 0 }), hasSearch: !!savedTerm,
+      modifierKeyLabel, searchPlaceholder, shortcutsHint,
       onClearSearch: () => this.setState({ search: '', matchIndex: 0 }),
       matchLabel, onPrevMatch: () => this.setState(s => ({ matchIndex: s.matchIndex - 1 })), onNextMatch: () => this.setState(s => ({ matchIndex: s.matchIndex + 1 })),
       searchMode: S.searchMode, modeHiStyle: seg(S.searchMode === 'highlight'), modeFilStyle: seg(S.searchMode === 'filter'),
