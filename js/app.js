@@ -1131,15 +1131,37 @@ class Component extends DCLogic {
     } catch (e) { return { ok: false, error: e.message }; }
   }
 
+  xpathNodeValue(node) {
+    if (!node) return '';
+    if (node.nodeType === 2) return node.value != null ? node.value : (node.textContent || '');
+    if (node.nodeType === 1) {
+      if (node.outerHTML != null) return node.outerHTML;
+      if (typeof XMLSerializer !== 'undefined') {
+        try { return new XMLSerializer().serializeToString(node); } catch (e) {}
+      }
+    }
+    return node.textContent != null ? node.textContent : '';
+  }
+
   runXPath(doc, path) {
     const p = path.trim();
     if (!p) return { ok: true, results: [] };
     try {
-      const it = doc.evaluate(p, doc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
       const results = [];
-      for (let i = 0; i < it.snapshotLength; i++) {
-        const node = it.snapshotItem(i);
-        results.push({ path: node.nodeName, val: node.nodeType === 1 ? node.outerHTML : node.textContent });
+      const xr = doc.evaluate(p, doc, null, XPathResult.ANY_TYPE, null);
+      if (xr.resultType === XPathResult.STRING_TYPE) results.push({ path: p, val: xr.stringValue });
+      else if (xr.resultType === XPathResult.NUMBER_TYPE) results.push({ path: p, val: xr.numberValue });
+      else if (xr.resultType === XPathResult.BOOLEAN_TYPE) results.push({ path: p, val: xr.booleanValue });
+      else if (xr.resultType === XPathResult.ANY_UNORDERED_NODE_TYPE || xr.resultType === XPathResult.FIRST_ORDERED_NODE_TYPE) {
+        if (xr.singleNodeValue) results.push({ path: xr.singleNodeValue.nodeName, val: this.xpathNodeValue(xr.singleNodeValue) });
+      } else if (xr.resultType === XPathResult.UNORDERED_NODE_ITERATOR_TYPE || xr.resultType === XPathResult.ORDERED_NODE_ITERATOR_TYPE) {
+        let node;
+        while ((node = xr.iterateNext())) results.push({ path: node.nodeName, val: this.xpathNodeValue(node) });
+      } else {
+        for (let i = 0; i < xr.snapshotLength; i++) {
+          const node = xr.snapshotItem(i);
+          results.push({ path: node.nodeName, val: this.xpathNodeValue(node) });
+        }
       }
       return { ok: true, results };
     } catch (e) { return { ok: false, error: 'Invalid XPath' }; }
@@ -1756,7 +1778,7 @@ class Component extends DCLogic {
       onToolbarSearchMode: () => this.setState({ explorerMode: 'search' }), onToolbarQueryMode: () => this.setState({ explorerMode: 'query' }),
 
       query: S.query, onQuery: (e) => this.setState({ query: e.target.value }), hasQuery: !!savedQuery,
-      queryPrefix: isXml ? 'XPath' : '$', queryPlaceholder: isXml ? "//department[@id='d2']  or  //title" : "$.store.departments[*].title",
+      queryPrefix: isXml ? 'XPath' : '$', queryPlaceholder: isXml ? "//departments[id='d2']  or  //title" : "$.store.departments[*].title",
       queryStat, queryStatStyle: { font: '600 11px/1 ' + tok.fontMono, color: queryStatOk ? tok.textDim : tok.sem.err, whiteSpace: 'nowrap' },
       onClearQuery: () => this.setState({ query: '' }),
 
