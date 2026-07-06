@@ -515,13 +515,37 @@ class Component extends DCLogic {
       }
       if (text) children.push({ kind: 'leaf', vType: 'text', key: '#text', path: path + '/#text', jpath: jpath + '/text()', disp: text, copyText: text });
     } else {
-      const counts = {};
-      elems.forEach(c => { counts[c.nodeName] = (counts[c.nodeName] || 0) + 1; });
-      const seen = {};
+      const grouped = {};
+      const byName = {};
       elems.forEach(c => {
-        seen[c.nodeName] = (seen[c.nodeName] || 0) + 1;
-        const idx = counts[c.nodeName] > 1 ? '[' + seen[c.nodeName] + ']' : '';
-        children.push(this.buildXmlNode(c, path + '/' + c.nodeName + idx, jpath + '/' + c.nodeName + idx));
+        if (!byName[c.nodeName]) byName[c.nodeName] = [];
+        byName[c.nodeName].push(c);
+      });
+
+      elems.forEach(c => {
+        const childName = c.nodeName;
+        if (grouped[childName]) return;
+        const group = byName[childName] || [];
+        if (group.length > 1) {
+          const arrChildren = group.map((itemEl, idx) => {
+            const itemIdx = idx + 1;
+            const itemNode = this.buildXmlNode(itemEl, path + '/' + childName + '[' + itemIdx + ']', jpath + '/' + childName + '[' + itemIdx + ']');
+            // Array children use numeric keys so rendering/record mode behaves like JSON arrays.
+            itemNode.key = idx;
+            return itemNode;
+          });
+          children.push({
+            kind: 'array',
+            key: childName,
+            path: path + '/' + childName,
+            jpath: jpath + '/' + childName,
+            children: arrChildren,
+            count: arrChildren.length,
+          });
+        } else {
+          children.push(this.buildXmlNode(c, path + '/' + childName, jpath + '/' + childName));
+        }
+        grouped[childName] = true;
       });
       if (text) children.push({ kind: 'leaf', vType: 'text', key: '#text', path: path + '/#text', jpath: jpath + '/text()', disp: text, copyText: text });
     }
