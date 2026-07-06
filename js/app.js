@@ -883,47 +883,251 @@ class Component extends DCLogic {
     return t;
   }
 
+  jsonPathAppend(path, seg, isIndex) {
+    if (isIndex) return path + '[' + seg + ']';
+    return IDENT.test(seg) ? (path + '.' + seg) : (path + '[' + JSON.stringify(seg) + ']');
+  }
+
+  jsonPathRead(v, seg) {
+    return v != null && typeof v === 'object' && seg in v ? v[seg] : undefined;
+  }
+
+  jsonPathSplit(s, delim) {
+    const out = [];
+    let cur = '', quote = null, depth = 0;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (quote) {
+        cur += ch;
+        if (ch === '\\' && i + 1 < s.length) { cur += s[++i]; continue; }
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === '\'') { quote = ch; cur += ch; continue; }
+      if (ch === '(') { depth++; cur += ch; continue; }
+      if (ch === ')') { depth--; cur += ch; continue; }
+      if (depth === 0 && ch === delim) { out.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    if (quote || depth !== 0) throw new Error('Invalid JSONPath');
+    out.push(cur.trim());
+    return out;
+  }
+
+  jsonPathUnquote(s) {
+    const q = s && s[0];
+    if ((q !== '"' && q !== '\'') || s[s.length - 1] !== q) throw new Error('Invalid JSONPath');
+    const body = s.slice(1, -1).replace(/\\'/g, "'");
+    return JSON.parse('"' + body.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"');
+  }
+
+  jsonPathParseInt(s) {
+    if (!/^-?\d+$/.test(s)) throw new Error('Invalid JSONPath');
+    return parseInt(s, 10);
+  }
+
+  jsonPathLiteral(s) {
+    if (s === 'true') return true;
+    if (s === 'false') return false;
+    if (s === 'null') return null;
+    if (/^-?\d+(?:\.\d+)?$/.test(s)) return Number(s);
+    if ((s[0] === '"' && s[s.length - 1] === '"') || (s[0] === '\'' && s[s.length - 1] === '\'')) return this.jsonPathUnquote(s);
+    throw new Error('Invalid JSONPath');
+  }
+
+  jsonPathCompileFilter(expr) {
+    const m = expr.match(/^@((?:\.[A-Za-z_$][\w$]*|\[(?:-?\d+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\])*)\s*(==|!=|<=|>=|<|>)\s*(.+)$/);
+    if (!m) throw new Error('Invalid JSONPath');
+    const rel = this.parseJsonPathTokens('@' + m[1]);
+    const op = m[2];
+    const rhs = this.jsonPathLiteral(m[3].trim());
+    return (entry) => {
+      const resolved = this.evalJsonPathTokens([{ path: '@', val: entry.val }], rel).map(x => x.val);
+      return resolved.some(lhs => {
+        if (op === '==') return lhs === rhs;
+        if (op === '!=') return lhs !== rhs;
+        if (op === '<') return lhs < rhs;
+        if (op === '<=') return lhs <= rhs;
+        if (op === '>') return lhs > rhs;
+        return lhs >= rhs;
+      });
+    };
+  }
+
+  parseJsonPathTokens(path) {
+    const p = (path || '').trim();
+    if (!p) return [];
+    let i = 0;
+    const toks = [];
+    if (p[i] === '$' || p[i] === '@') i++;
+    const parseIdent = () => {
+      const m = p.slice(i).match(/^[A-Za-z_$][\w$]*/);
+      if (!m) throw new Error('Invalid JSONPath');
+      i += m[0].length;
+      return m[0];
+    };
+    const readBracket = () => {
+      let j = i + 1, quote = null, depth = 0;
+      while (j < p.length) {
+        const ch = p[j];
+        if (quote) {
+          if (ch === '\\') { j += 2; continue; }
+          if (ch === quote) quote = null;
+          j++;
+          continue;
+        }
+        if (ch === '"' || ch === '\'') { quote = ch; j++; continue; }
+        if (ch === '(') { depth++; j++; continue; }
+        if (ch === ')') { depth--; j++; continue; }
+        if (ch === ']' && depth === 0) break;
+        j++;
+      }
+      if (j >= p.length) throw new Error('Invalid JSONPath');
+      const raw = p.slice(i + 1, j).trim();
+      i = j + 1;
+      return raw;
+    };
+    const parseBracket = (recursive) => {
+      const raw = readBracket();
+      if (!raw) throw new Error('Invalid JSONPath');
+      if (raw === '*') return { t: recursive ? 'rWild' : 'wild' };
+      if (raw.startsWith('?(') && raw.endsWith(')')) return { t: 'filter', fn: this.jsonPathCompileFilter(raw.slice(2, -1).trim()) };
+      const unionParts = this.jsonPathSplit(raw, ',');
+      if (unionParts.length > 1) {
+        return {
+          t: 'union',
+          items: unionParts.map(part => {
+            if ((part[0] === '"' && part[part.length - 1] === '"') || (part[0] === '\'' && part[part.length - 1] === '\'')) return { t: 'key', v: this.jsonPathUnquote(part) };
+            return { t: 'index', v: this.jsonPathParseInt(part) };
+          })
+        };
+      }
+      if (raw.indexOf(':') >= 0) {
+        const parts = this.jsonPathSplit(raw, ':');
+        if (parts.length < 2 || parts.length > 3) throw new Error('Invalid JSONPath');
+        return {
+          t: 'slice',
+          start: parts[0] === '' ? null : this.jsonPathParseInt(parts[0]),
+          end: parts[1] === '' ? null : this.jsonPathParseInt(parts[1]),
+          step: !parts[2] ? null : this.jsonPathParseInt(parts[2]),
+        };
+      }
+      if ((raw[0] === '"' && raw[raw.length - 1] === '"') || (raw[0] === '\'' && raw[raw.length - 1] === '\'')) {
+        return { t: recursive ? 'rKey' : 'key', v: this.jsonPathUnquote(raw) };
+      }
+      if (/^-?\d+$/.test(raw)) return { t: 'index', v: this.jsonPathParseInt(raw) };
+      throw new Error('Invalid JSONPath');
+    };
+
+    while (i < p.length) {
+      if (p.startsWith('..', i)) {
+        i += 2;
+        if (i >= p.length) throw new Error('Invalid JSONPath');
+        if (p[i] === '*') { toks.push({ t: 'rWild' }); i++; continue; }
+        if (p[i] === '[') { toks.push(parseBracket(true)); continue; }
+        toks.push({ t: 'rKey', v: parseIdent() });
+        continue;
+      }
+      if (p[i] === '.') {
+        i++;
+        if (i >= p.length) throw new Error('Invalid JSONPath');
+        if (p[i] === '*') { toks.push({ t: 'wild' }); i++; continue; }
+        toks.push({ t: 'key', v: parseIdent() });
+        continue;
+      }
+      if (p[i] === '[') { toks.push(parseBracket(false)); continue; }
+      if (i === 0 || (i === 1 && (p[0] === '$' || p[0] === '@'))) { toks.push({ t: 'key', v: parseIdent() }); continue; }
+      throw new Error('Invalid JSONPath');
+    }
+    return toks;
+  }
+
+  jsonPathDescendants(entry, out, includeSelf) {
+    if (includeSelf) out.push(entry);
+    const v = entry.val;
+    if (Array.isArray(v)) {
+      v.forEach((item, idx) => {
+        this.jsonPathDescendants({ path: this.jsonPathAppend(entry.path, idx, true), val: item }, out, true);
+      });
+      return;
+    }
+    if (v && typeof v === 'object') {
+      Object.keys(v).forEach(key => {
+        this.jsonPathDescendants({ path: this.jsonPathAppend(entry.path, key, false), val: v[key] }, out, true);
+      });
+    }
+  }
+
+  evalJsonPathTokens(cur, toks) {
+    for (const tk of toks) {
+      const next = [];
+      if (tk.t === 'rWild' || tk.t === 'rKey') {
+        cur.forEach(entry => {
+          const desc = [];
+          this.jsonPathDescendants(entry, desc, false);
+          if (tk.t === 'rWild') next.push.apply(next, desc);
+          else desc.forEach(d => {
+            const lastDot = d.path.lastIndexOf('.');
+            const lastBracket = d.path.lastIndexOf('[');
+            const seg = d.path.slice(Math.max(lastDot, lastBracket) + 1).replace(/^['"]|['"]$/g, '').replace(/\]$/, '');
+            if (seg === tk.v || d.path.endsWith('.' + tk.v) || d.path.endsWith('["' + tk.v + '"]')) next.push(d);
+          });
+        });
+        cur = next;
+        continue;
+      }
+      cur.forEach(c => {
+        const v = c.val;
+        if (tk.t === 'key') {
+          const hit = this.jsonPathRead(v, tk.v);
+          if (hit !== undefined) next.push({ path: this.jsonPathAppend(c.path, tk.v, false), val: hit });
+        } else if (tk.t === 'wild') {
+          if (Array.isArray(v)) v.forEach((item, idx) => next.push({ path: this.jsonPathAppend(c.path, idx, true), val: item }));
+          else if (v && typeof v === 'object') Object.keys(v).forEach(key => next.push({ path: this.jsonPathAppend(c.path, key, false), val: v[key] }));
+        } else if (tk.t === 'index') {
+          if (Array.isArray(v)) {
+            const idx = tk.v < 0 ? v.length + tk.v : tk.v;
+            if (idx >= 0 && idx < v.length) next.push({ path: this.jsonPathAppend(c.path, idx, true), val: v[idx] });
+          }
+        } else if (tk.t === 'union') {
+          tk.items.forEach(item => {
+            if (item.t === 'key') {
+              const hit = this.jsonPathRead(v, item.v);
+              if (hit !== undefined) next.push({ path: this.jsonPathAppend(c.path, item.v, false), val: hit });
+            } else if (Array.isArray(v)) {
+              const idx = item.v < 0 ? v.length + item.v : item.v;
+              if (idx >= 0 && idx < v.length) next.push({ path: this.jsonPathAppend(c.path, idx, true), val: v[idx] });
+            }
+          });
+        } else if (tk.t === 'slice') {
+          if (!Array.isArray(v)) return;
+          const step = tk.step == null ? 1 : tk.step;
+          if (step === 0) return;
+          const len = v.length;
+          let start = tk.start == null ? (step > 0 ? 0 : len - 1) : (tk.start < 0 ? len + tk.start : tk.start);
+          let end = tk.end == null ? (step > 0 ? len : -1) : (tk.end < 0 ? len + tk.end : tk.end);
+          if (step > 0) {
+            for (let idx = Math.max(0, start); idx < Math.min(len, end); idx += step) next.push({ path: this.jsonPathAppend(c.path, idx, true), val: v[idx] });
+          } else {
+            for (let idx = Math.min(len - 1, start); idx > Math.max(-1, end); idx += step) next.push({ path: this.jsonPathAppend(c.path, idx, true), val: v[idx] });
+          }
+        } else if (tk.t === 'filter') {
+          if (Array.isArray(v)) v.forEach((item, idx) => { const entry = { path: this.jsonPathAppend(c.path, idx, true), val: item }; if (tk.fn(entry)) next.push(entry); });
+          else if (v && typeof v === 'object') Object.keys(v).forEach(key => { const entry = { path: this.jsonPathAppend(c.path, key, false), val: v[key] }; if (tk.fn(entry)) next.push(entry); });
+        }
+      });
+      cur = next;
+    }
+    return cur;
+  }
+
   // ---------- JSONPath ----------
   runJsonPath(value, path) {
     const p = path.trim();
     if (!p) return { ok: true, results: [] };
     try {
-      let expr = p.startsWith('$') ? p.slice(1) : p;
-      const toks = [];
-      const re = /\.\.|\.([A-Za-z_$][\w$]*)|\[([^\]]+)\]|\.\*|\*/g;
-      let m, last = 0;
-      while ((m = re.exec(expr)) !== null) {
-        if (m[0] === '..') toks.push({ t: 'desc' });
-        else if (m[1] !== undefined) toks.push({ t: 'key', v: m[1] });
-        else if (m[2] !== undefined) toks.push({ t: 'bracket', v: m[2].trim() });
-        else toks.push({ t: 'wild' });
-      }
-      let cur = [{ path: '$', val: value }];
-      for (const tk of toks) {
-        const next = [];
-        if (tk.t === 'desc') {
-          const gather = (node) => { const stack = [node]; while (stack.length) { const x = stack.pop(); next.push(x); const v = x.val; if (Array.isArray(v)) v.forEach((e, i) => stack.push({ path: x.path + '[' + i + ']', val: e })); else if (v && typeof v === 'object') Object.keys(v).forEach(k => stack.push({ path: x.path + '.' + k, val: v[k] })); } };
-          cur.forEach(gather);
-          cur = next; continue;
-        }
-        cur.forEach(c => {
-          const v = c.val;
-          if (tk.t === 'key' || (tk.t === 'bracket' && /^['"]/.test(tk.v))) {
-            const key = tk.t === 'key' ? tk.v : tk.v.replace(/^['"]|['"]$/g, '');
-            if (v && typeof v === 'object' && !Array.isArray(v) && key in v) next.push({ path: c.path + '.' + key, val: v[key] });
-          } else if (tk.t === 'wild' || (tk.t === 'bracket' && tk.v === '*')) {
-            if (Array.isArray(v)) v.forEach((e, i) => next.push({ path: c.path + '[' + i + ']', val: e }));
-            else if (v && typeof v === 'object') Object.keys(v).forEach(k => next.push({ path: c.path + '.' + k, val: v[k] }));
-          } else if (tk.t === 'bracket') {
-            const b = tk.v;
-            if (/^-?\d+$/.test(b)) { const i = +b < 0 ? v.length + +b : +b; if (Array.isArray(v) && v[i] !== undefined) next.push({ path: c.path + '[' + i + ']', val: v[i] }); }
-            else if (b.includes(':')) { const [a, z] = b.split(':').map(x => x.trim()); if (Array.isArray(v)) { const s = a === '' ? 0 : +a, e = z === '' ? v.length : +z; for (let i = s; i < e; i++) if (v[i] !== undefined) next.push({ path: c.path + '[' + i + ']', val: v[i] }); } }
-            else if (b.includes(',')) { b.split(',').forEach(k => { k = k.trim().replace(/^['"]|['"]$/g, ''); if (v && typeof v === 'object' && k in v) next.push({ path: c.path + '.' + k, val: v[k] }); }); }
-          }
-        });
-        cur = next;
-      }
-      return { ok: true, results: cur };
+      const toks = this.parseJsonPathTokens(p);
+      return { ok: true, results: this.evalJsonPathTokens([{ path: '$', val: value }], toks) };
     } catch (e) { return { ok: false, error: e.message }; }
   }
 
