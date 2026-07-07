@@ -79,6 +79,12 @@ const APP_META_DEFAULT = Object.freeze({
   version: '0.1.0',
   copyright: 'Copyright (c) 2026 Widgemo. All rights reserved.'
 });
+const REMEMBER_DEFAULT = Object.freeze({
+  content: true,
+  workspace: true,
+  explorer: true,
+  find: true,
+});
 
 function sanitizeAppMeta(raw) {
   const meta = Object.assign({}, APP_META_DEFAULT);
@@ -89,6 +95,16 @@ function sanitizeAppMeta(raw) {
   if (typeof raw.version === 'string' && raw.version.trim()) meta.version = raw.version.trim();
   if (typeof raw.copyright === 'string' && raw.copyright.trim()) meta.copyright = raw.copyright.trim();
   return meta;
+}
+
+function sanitizeRememberPrefs(raw) {
+  const base = Object.assign({}, REMEMBER_DEFAULT);
+  if (!raw || typeof raw !== 'object') return base;
+  if (typeof raw.content === 'boolean') base.content = raw.content;
+  if (typeof raw.workspace === 'boolean') base.workspace = raw.workspace;
+  if (typeof raw.explorer === 'boolean') base.explorer = raw.explorer;
+  if (typeof raw.find === 'boolean') base.find = raw.find;
+  return base;
 }
 
 function utf8ToBinary(str) {
@@ -151,6 +167,7 @@ function loadPersisted() {
   if (data.fullscreenPanel !== 'source' && data.fullscreenPanel !== 'explorer') delete data.fullscreenPanel;
   if (data.tableMode !== 'path' && data.tableMode !== 'record') delete data.tableMode;
   if (typeof data.tableSourcePath !== 'string') delete data.tableSourcePath;
+  data.rememberPrefs = sanitizeRememberPrefs(data.rememberPrefs);
   return data;
 }
 
@@ -188,6 +205,7 @@ class Component extends DCLogic {
       showSettings: false,
       shareMsg: null,
       appMeta: APP_META_DEFAULT,
+      rememberPrefs: sanitizeRememberPrefs(P.rememberPrefs),
     };
     this.editorRef = React.createRef();
     this.highlightRef = React.createRef();
@@ -247,68 +265,64 @@ class Component extends DCLogic {
         box.scrollTop = target; this.setState({ scrollTop: target });
       }
     }
-    if (prevState && (prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
+    const rememberChanged = prevState && (
+      prevState.rememberPrefs.content !== this.state.rememberPrefs.content ||
+      prevState.rememberPrefs.workspace !== this.state.rememberPrefs.workspace ||
+      prevState.rememberPrefs.explorer !== this.state.rememberPrefs.explorer ||
+      prevState.rememberPrefs.find !== this.state.rememberPrefs.find
+    );
+    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
       this.schedulePersist();
     }
   }
 
   persistNow() {
     const S = this.state;
+    const remember = sanitizeRememberPrefs(S.rememberPrefs);
     const data = {
-      mode: S.mode,
       theme: S.theme,
       direction: S.direction,
       indent: S.indent,
       softWrap: S.softWrap,
-      view: S.view,
-      searchMode: S.searchMode,
-      explorerMode: S.explorerMode,
-      search: S.search,
-      query: S.query,
-      fullscreenPanel: S.fullscreenPanel,
-      tableMode: S.tableMode,
-      tableSourcePath: S.tableSourcePath,
-      diffA: S.diffA,
-      diffB: S.diffB,
-      input: S.input,
+      rememberPrefs: remember,
     };
+
+    if (remember.workspace) {
+      data.mode = S.mode;
+      data.fullscreenPanel = S.fullscreenPanel;
+    }
+    if (remember.explorer) {
+      data.view = S.view;
+      data.tableMode = S.tableMode;
+      data.tableSourcePath = S.tableSourcePath;
+    }
+    if (remember.find) {
+      data.searchMode = S.searchMode;
+      data.explorerMode = S.explorerMode;
+      data.search = S.search;
+      data.query = S.query;
+    }
+    if (remember.content) {
+      data.diffA = S.diffA;
+      data.diffB = S.diffB;
+      data.input = S.input;
+    }
 
     if (typeof data.input === 'string' && data.input.length > MAX_PERSIST) delete data.input;
     if (typeof data.diffA === 'string' && data.diffA.length > MAX_PERSIST) delete data.diffA;
     if (typeof data.diffB === 'string' && data.diffB.length > MAX_PERSIST) delete data.diffB;
 
+    const stripKeys = (src, keys) => {
+      const out = Object.assign({}, src);
+      keys.forEach((k) => { delete out[k]; });
+      return out;
+    };
+
     const attempts = [
       data,
-      Object.assign({}, data, { diffA: '', diffB: '' }),
-      {
-        mode: data.mode,
-        theme: data.theme,
-        direction: data.direction,
-        indent: data.indent,
-        softWrap: data.softWrap,
-        view: data.view,
-        searchMode: data.searchMode,
-        explorerMode: data.explorerMode,
-        search: data.search,
-        query: data.query,
-        fullscreenPanel: data.fullscreenPanel,
-        tableMode: data.tableMode,
-        tableSourcePath: data.tableSourcePath,
-        input: data.input,
-      },
-      {
-        mode: data.mode,
-        theme: data.theme,
-        direction: data.direction,
-        indent: data.indent,
-        softWrap: data.softWrap,
-        view: data.view,
-        searchMode: data.searchMode,
-        explorerMode: data.explorerMode,
-        fullscreenPanel: data.fullscreenPanel,
-        tableMode: data.tableMode,
-        tableSourcePath: data.tableSourcePath,
-      }
+      stripKeys(data, ['diffA', 'diffB']),
+      stripKeys(data, ['input', 'diffA', 'diffB']),
+      stripKeys(data, ['input', 'diffA', 'diffB', 'search', 'query'])
     ];
 
     for (let i = 0; i < attempts.length; i++) {
@@ -1663,6 +1677,16 @@ class Component extends DCLogic {
       slate: theme === 'dark' ? '#58d5ca' : '#0e9f96',
       paper: theme === 'dark' ? '#f2b47a' : '#d9713b',
     };
+    const remember = sanitizeRememberPrefs(S.rememberPrefs);
+    const rememberToggleStyle = (active) => ({
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      minWidth: '52px', height: '24px', padding: '0 10px', border: 'none', borderRadius: '6px',
+      cursor: 'pointer', font: '700 10px/1 ' + tok.fontUi, letterSpacing: '.04em', textTransform: 'uppercase',
+      background: active ? tok.accentWeak : tok.panel2,
+      color: active ? tok.accent : tok.textDim,
+      boxShadow: active ? '0 1px 2px rgba(0,0,0,.12)' : 'none',
+      transition: 'all .12s'
+    });
     const segFlat = (active) => ({ height: '26px', padding: '0 11px', border: 'none', borderRadius: '6px', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, background: active ? tok.accent : 'transparent', color: active ? tok.accentContrast : tok.textDim, transition: 'all .12s' });
     const btnStyle = { display: 'inline-flex', alignItems: 'center', gap: '6px', height: '30px', padding: '0 11px', borderRadius: tok.radiusSm, border: '1px solid ' + tok.border, background: tok.elev, color: tok.text, font: '500 12.5px/1 ' + tok.fontUi, cursor: 'pointer', whiteSpace: 'nowrap' };
     const btnHover = 'background:' + tok.accentWeak + ';border-color:' + tok.accent + ';color:' + tok.text;
@@ -1870,6 +1894,18 @@ class Component extends DCLogic {
       onThemeDark: () => this.setState({ theme: 'dark' }),
       themeLightStyle: segIcon(theme === 'light'),
       themeDarkStyle: segIcon(theme === 'dark'),
+      rememberContentStyle: rememberToggleStyle(remember.content),
+      rememberWorkspaceStyle: rememberToggleStyle(remember.workspace),
+      rememberExplorerStyle: rememberToggleStyle(remember.explorer),
+      rememberFindStyle: rememberToggleStyle(remember.find),
+      rememberContentLabel: remember.content ? 'On' : 'Off',
+      rememberWorkspaceLabel: remember.workspace ? 'On' : 'Off',
+      rememberExplorerLabel: remember.explorer ? 'On' : 'Off',
+      rememberFindLabel: remember.find ? 'On' : 'Off',
+      onRememberContent: () => this.setState(s => ({ rememberPrefs: Object.assign({}, s.rememberPrefs, { content: !s.rememberPrefs.content }) })),
+      onRememberWorkspace: () => this.setState(s => ({ rememberPrefs: Object.assign({}, s.rememberPrefs, { workspace: !s.rememberPrefs.workspace }) })),
+      onRememberExplorer: () => this.setState(s => ({ rememberPrefs: Object.assign({}, s.rememberPrefs, { explorer: !s.rememberPrefs.explorer }) })),
+      onRememberFind: () => this.setState(s => ({ rememberPrefs: Object.assign({}, s.rememberPrefs, { find: !s.rememberPrefs.find }) })),
       themeToggleTitle: theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode',
       themeIcon: theme === 'dark' ? (window.PAW_ICONS ? window.PAW_ICONS.moon() : null) : (window.PAW_ICONS ? window.PAW_ICONS.sun() : null),
       themeLabel: theme === 'dark' ? 'Dark' : 'Light', themeDotBg: theme === 'dark' ? tok.text : 'transparent',
