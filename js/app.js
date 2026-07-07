@@ -176,7 +176,7 @@ class Component extends DCLogic {
   constructor(props) {
     super(props);
     const P = loadPersisted();
-    this.state = {
+    this.state = { 
       mode: P.mode || 'format',
       theme: P.theme || props.theme || 'light',
       direction: P.direction || props.direction || 'aurora',
@@ -232,6 +232,42 @@ class Component extends DCLogic {
     this._onKey = this.handleKey.bind(this);
   }
 
+  keepPaths(paths) {
+    const keep = new Set();
+    (paths || []).forEach((path) => {
+      let cur = String(path || '').trim();
+      while (cur) {
+        keep.add(cur);
+        const next = cur.replace(/\/[^/]+$/, '');
+        if (!next || next === cur) break;
+        cur = next;
+      }
+    });
+    return keep;
+  }
+
+  keepPathsForQuery(node, queryPaths) {
+    const keep = new Set();
+    const matches = new Set();
+    const target = new Set();
+    Array.from(queryPaths || []).map((path) => String(path || '').trim()).filter(Boolean).forEach((path) => {
+      target.add(path);
+      const treePath = this.jsonPathToTreePath(path);
+      if (treePath) target.add(treePath);
+    });
+    const walk = (n) => {
+      if (!n) return false;
+      const selfMatched = !!((n.jpath && target.has(n.jpath)) || (n.path && target.has(n.path)));
+      let childMatched = false;
+      if (n.children) n.children.forEach((child) => { if (walk(child)) childMatched = true; });
+      if (selfMatched) matches.add(n.path);
+      if (selfMatched || childMatched) keep.add(n.path);
+      return selfMatched || childMatched;
+    };
+    walk(node);
+    return { keep, matches };
+  }
+
   componentDidMount() {
     window.addEventListener('keydown', this._onKey, true);
     this.loadAppMeta();
@@ -277,7 +313,7 @@ class Component extends DCLogic {
       prevState.rememberPrefs.explorer !== this.state.rememberPrefs.explorer ||
       prevState.rememberPrefs.find !== this.state.rememberPrefs.find
     );
-    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
+    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
       this.schedulePersist();
     }
   }
@@ -891,10 +927,11 @@ class Component extends DCLogic {
     return '<' + tagName + attrs.join('') + '>' + text + body.join('') + '</' + tagName + '>';
   }
 
-  explorerPayloadText(parsed, node, term, matchPaths) {
-    if (!parsed || !parsed.ok || !term || !node) return parsed && parsed.empty ? '' : (this.state.input || '');
+  explorerPayloadText(parsed, node, term, matchPaths, keepPaths) {
+    const hasFilter = !!(term || (matchPaths && matchPaths.size) || (keepPaths && keepPaths.size));
+    if (!parsed || !parsed.ok || !node || !hasFilter) return parsed && parsed.empty ? '' : (this.state.input || '');
     const sourceStyle = this.state.input.indexOf('\n') >= 0 ? 'beautify' : 'minify';
-    const keep = this.keepSet(node, term);
+    const keep = keepPaths || this.keepSet(node, term);
     if (parsed.format === 'json') {
       const filtered = this.jsonFilteredValue(node, keep, matchPaths, false, true);
       if (filtered === undefined) return '{}';
@@ -1565,6 +1602,36 @@ class Component extends DCLogic {
     return node.textContent != null ? node.textContent : '';
   }
 
+  xmlNodeModelPath(node) {
+    if (!node) return '';
+    if (node.nodeType === 2) {
+      const base = this.xmlNodeModelPath(node.ownerElement);
+      return base ? (base + '/@' + node.nodeName) : '';
+    }
+    if (node.nodeType === 3) {
+      const base = this.xmlNodeModelPath(node.parentElement);
+      return base ? (base + '/#text') : '';
+    }
+    if (node.nodeType !== 1) return '';
+    const segs = [];
+    let cur = node;
+    while (cur && cur.nodeType === 1) {
+      const parent = cur.parentElement;
+      if (parent) {
+        const sibs = Array.from(parent.children || []).filter((c) => c.nodeName === cur.nodeName);
+        if (sibs.length > 1) {
+          segs.unshift(cur.nodeName + '[' + (sibs.indexOf(cur) + 1) + ']');
+        } else {
+          segs.unshift(cur.nodeName);
+        }
+      } else {
+        segs.unshift(cur.nodeName);
+      }
+      cur = parent;
+    }
+    return '/' + segs.join('/');
+  }
+
   runXPath(doc, path) {
     const p = path.trim();
     if (!p) return { ok: true, results: [] };
@@ -1575,14 +1642,14 @@ class Component extends DCLogic {
       else if (xr.resultType === XPathResult.NUMBER_TYPE) results.push({ path: p, val: xr.numberValue });
       else if (xr.resultType === XPathResult.BOOLEAN_TYPE) results.push({ path: p, val: xr.booleanValue });
       else if (xr.resultType === XPathResult.ANY_UNORDERED_NODE_TYPE || xr.resultType === XPathResult.FIRST_ORDERED_NODE_TYPE) {
-        if (xr.singleNodeValue) results.push({ path: xr.singleNodeValue.nodeName, val: this.xpathNodeValue(xr.singleNodeValue) });
+        if (xr.singleNodeValue) results.push({ path: xr.singleNodeValue.nodeName, val: this.xpathNodeValue(xr.singleNodeValue), node: xr.singleNodeValue, modelPath: this.xmlNodeModelPath(xr.singleNodeValue) });
       } else if (xr.resultType === XPathResult.UNORDERED_NODE_ITERATOR_TYPE || xr.resultType === XPathResult.ORDERED_NODE_ITERATOR_TYPE) {
         let node;
-        while ((node = xr.iterateNext())) results.push({ path: node.nodeName, val: this.xpathNodeValue(node) });
+        while ((node = xr.iterateNext())) results.push({ path: node.nodeName, val: this.xpathNodeValue(node), node, modelPath: this.xmlNodeModelPath(node) });
       } else {
         for (let i = 0; i < xr.snapshotLength; i++) {
           const node = xr.snapshotItem(i);
-          results.push({ path: node.nodeName, val: this.xpathNodeValue(node) });
+          results.push({ path: node.nodeName, val: this.xpathNodeValue(node), node, modelPath: this.xmlNodeModelPath(node) });
         }
       }
       return { ok: true, results };
@@ -1759,11 +1826,13 @@ class Component extends DCLogic {
     if (!node || !parsed || !parsed.ok) return { rows, suitable: false };
     const term = (ctx.term || '').toLowerCase();
     const inFilter = ctx.filter && !!term;
+    const pathFilter = ctx.pathFilter && ctx.keep && ctx.keep.size > 0;
     const walk = (n, depth) => {
       if (!n) return;
       if (n.kind === 'leaf') {
         const key = n.key == null ? '' : String(n.key);
         const value = n.vType === 'null' ? 'null' : String(n.disp == null ? '' : n.disp);
+        if (pathFilter && !ctx.keep.has(n.path)) return;
         const keyMatch = term && key.toLowerCase().includes(term);
         const valMatch = term && value.toLowerCase().includes(term);
         if (inFilter && !(keyMatch || valMatch)) return;
@@ -1783,6 +1852,7 @@ class Component extends DCLogic {
 
     const term = (ctx.term || '').toLowerCase();
     const inFilter = ctx.filter && !!term;
+    const pathFilter = ctx.pathFilter && ctx.keep && ctx.keep.size > 0;
     const rowNodes = node.kind === 'array' && node.children && node.children.length ? node.children : [node];
     const columns = [];
     const seen = new Set();
@@ -1832,6 +1902,17 @@ class Component extends DCLogic {
       const fields = rowData.fields;
       const fieldMeta = rowData.fieldMeta;
       const rowLabel = rowNode.jpath || rowNode.path || String(index);
+      if (pathFilter) {
+        let matchesPath = ctx.keep.has(rowNode.path);
+        if (!matchesPath) {
+          const keys = Object.keys(fieldMeta);
+          for (let i = 0; i < keys.length; i++) {
+            const meta = fieldMeta[keys[i]];
+            if (meta && ctx.keep.has(meta.nodePath)) { matchesPath = true; break; }
+          }
+        }
+        if (!matchesPath) return;
+      }
       const matches = term
         ? Object.keys(fields).some(key => key.toLowerCase().includes(term) || String(fields[key]).toLowerCase().includes(term)) || rowLabel.toLowerCase().includes(term)
         : true;
@@ -1992,63 +2073,103 @@ class Component extends DCLogic {
       this._matchCache = { input: S.docInput, term, matches: term ? this.collectMatches(node, term) : [] };
     }
     const matches = this._matchCache.matches;
-    const filterMatchPaths = (S.explorerMode === 'search' && S.searchMode === 'filter' && term)
+    const searchFilterActive = S.explorerMode === 'search' && S.searchMode === 'filter' && !!term;
+    const searchKeepPaths = searchFilterActive ? this.keepSet(node, term) : new Set();
+    const searchFilterMatchPaths = searchFilterActive
       ? new Set(matches.map(m => m.replace(/#[kv]$/, '')))
       : new Set();
-    const explorerPayloadText = this.explorerPayloadText(parsed, node, term, filterMatchPaths);
+    const explorerPayloadText = this.explorerPayloadText(parsed, node, term, searchFilterMatchPaths, searchKeepPaths);
     const rawMatchSource = (S.view === 'raw' && term)
-      ? ((S.explorerMode === 'search' && S.searchMode === 'filter') ? explorerPayloadText : (parsed.empty ? '' : S.input))
+      ? (searchFilterActive ? explorerPayloadText : (parsed.empty ? '' : S.input))
       : '';
     const rawMatches = (S.view === 'raw' && term) ? this.collectRawMatches(rawMatchSource, term) : [];
     const activePool = (S.view === 'raw' ? rawMatches : matches);
     const activeIndex = activePool.length ? ((S.matchIndex % activePool.length) + activePool.length) % activePool.length : -1;
-    const activePath = (S.view === 'raw' || activeIndex < 0) ? null : matches[activeIndex];
-    const ctx = { tok, term, activePath };
-    const matchLabel = activePool.length ? (activeIndex + 1) + '/' + activePool.length : '0/0';
-
-    // query (computed regardless of active view; results are shown in optional drawer)
     const savedQuery = S.query.trim();
     const query = S.explorerMode === 'query' ? savedQuery : '';
     let explorerEl, queryStat = '', queryStatOk = true;
     let queryResults = [];
     let queryError = '';
+    let queryMatchPaths = new Set();
+    let queryKeepPaths = new Set();
     if (query) {
       const qr = isXml ? this.runXPath(parsed.doc, query) : this.runJsonPath(parsed.ok ? parsed.value : {}, query);
       if (!qr.ok) { queryStat = 'error'; queryStatOk = false; queryError = qr.error || 'invalid'; }
       else {
         queryResults = qr.results || [];
         queryStat = queryResults.length + (queryResults.length === 1 ? ' match' : ' matches');
+        if (isJson) {
+          const queryPaths = new Set(queryResults.map((r) => String(r.path || '').trim()).filter(Boolean));
+          const queryTargets = new Set();
+          queryPaths.forEach((path) => {
+            queryTargets.add(path);
+            const treePath = this.jsonPathToTreePath(path);
+            if (treePath) queryTargets.add(treePath);
+          });
+          const keep = new Set();
+          const matches = new Set();
+          const addSubtree = (n) => {
+            if (!n) return;
+            keep.add(n.path);
+            if (n.children) n.children.forEach(addSubtree);
+          };
+          const walkQuery = (n) => {
+            if (!n) return false;
+            const selfMatched = !!((n.jpath && queryTargets.has(n.jpath)) || (n.path && queryTargets.has(n.path)));
+            let childMatched = false;
+            if (n.children) n.children.forEach((child) => { if (walkQuery(child)) childMatched = true; });
+            if (selfMatched) matches.add(n.path);
+            if (selfMatched) addSubtree(n);
+            if (selfMatched || childMatched) keep.add(n.path);
+            return selfMatched || childMatched;
+          };
+          walkQuery(node);
+          queryMatchPaths = matches;
+          queryKeepPaths = keep;
+        } else if (isXml) {
+          const keep = new Set();
+          const matches = new Set();
+          const queryTargets = new Set(queryResults.map((r) => String((r && r.modelPath) || '').trim()).filter(Boolean));
+          const matchedNodes = new Set(queryResults.map((r) => r && r.node).filter(Boolean));
+          const addSubtree = (n) => {
+            if (!n) return;
+            keep.add(n.path);
+            if (n.children) n.children.forEach(addSubtree);
+          };
+          const walkXml = (n) => {
+            if (!n) return false;
+            const selfMatched = queryTargets.has(n.path) || !!(n.el && matchedNodes.has(n.el));
+            let childMatched = false;
+            if (n.children) n.children.forEach((child) => { if (walkXml(child)) childMatched = true; });
+            if (selfMatched) matches.add(n.path);
+            if (selfMatched) addSubtree(n);
+            if (selfMatched || childMatched) keep.add(n.path);
+            return selfMatched || childMatched;
+          };
+          walkXml(node);
+          queryMatchPaths = matches;
+          queryKeepPaths = keep;
+        }
       }
     }
-
-    const showQueryDrawer = S.explorerMode === 'query' && !!query && !S.queryDrawerCollapsed && (!queryStatOk || queryResults.length > 0);
-    const queryDrawerItems = queryResults.slice(0, 100).map((r, i) => {
-      const copyKey = 'q' + i;
-      const valueText = typeof r.val === 'object' ? JSON.stringify(r.val, null, 2) : String(r.val);
-      return {
-        id: i,
-        path: r.path,
-        valueText,
-        copyKey,
-      };
-    });
-    const queryDrawerEl = queryDrawerItems.map((item) => h('div', { key: item.id, className: 'rf-query-drawer-item' },
-      h('div', { className: 'rf-query-drawer-path', title: item.path }, item.path),
-      h('div', { className: 'rf-query-drawer-val', title: item.valueText }, item.valueText),
-      h('div', { className: 'rf-query-drawer-actions' },
-        h('button', { style: btnStyle, onClick: () => this.focusQueryResult(item.path) }, 'Focus'),
-        h('button', { style: btnStyle, onClick: () => this.copy(item.valueText, item.copyKey) }, 'Copy')
-      )
-    ));
+    const filterMatchPaths = searchFilterActive ? searchFilterMatchPaths : queryMatchPaths;
+    const filterKeepPaths = searchFilterActive ? searchKeepPaths : queryKeepPaths;
+    const activePath = (S.explorerMode === 'query' && queryMatchPaths.size)
+      ? Array.from(queryMatchPaths)[0]
+      : ((S.view === 'raw' || activeIndex < 0) ? null : matches[activeIndex]);
+    const ctx = { tok, term: searchFilterActive ? term : '', activePath, filter: searchFilterActive || queryKeepPaths.size > 0, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 };
+    const matchLabel = activePool.length ? (activeIndex + 1) + '/' + activePool.length : '0/0';
 
     if (S.view === 'raw') {
       const src = parsed.empty ? '' : S.input;
       this._activeRowIndex = -1;
       this._activeRowHeight = ROW_H;
       const rawSearchActive = S.explorerMode === 'search' && !!term && rawMatches.length > 0;
-      const rawBase = (S.explorerMode === 'search' && S.searchMode === 'filter' && term)
-        ? explorerPayloadText
-        : src;
+      const rawBase = (S.explorerMode === 'query' && queryKeepPaths.size)
+        ? this.explorerPayloadText(parsed, node, '', queryMatchPaths, queryKeepPaths)
+        : ((S.explorerMode === 'search' && S.searchMode === 'filter' && term)
+          ? explorerPayloadText
+          : src);
       const lines = rawBase.split('\n');
       const rawDisplay = rawBase.length <= 60000 ? this.highlight(rawBase, parsed.format, tok) : rawBase;
       const rawContent = rawSearchActive
@@ -2060,14 +2181,14 @@ class Component extends DCLogic {
       explorerEl = rawMain;
     } else if (S.view === 'table') {
       const tableMode = S.tableMode || 'path';
-      const filter = S.searchMode === 'filter';
+      const filter = searchFilterActive || (S.explorerMode === 'query' && queryKeepPaths.size > 0);
       const tableSourceNode = node ? (this.locateNode(node, S.tableSourcePath) || node) : null;
       const tableSourcePath = tableSourceNode ? tableSourceNode.path : '';
-      const tableCacheKey = S.docInput + '|' + tableMode + '|' + tableSourcePath + '|' + term + '|' + S.searchMode;
+      const tableCacheKey = S.docInput + '|' + tableMode + '|' + tableSourcePath + '|' + term + '|' + S.searchMode + '|' + (S.explorerMode === 'query' ? query : '');
       if (!this._tableCache || this._tableCache.cacheKey !== tableCacheKey) {
         const res = tableMode === 'record'
-          ? this.recordTableRows(tableSourceNode, parsed, { term, filter })
-          : this.tableRows(tableSourceNode, parsed, { term, filter });
+          ? this.recordTableRows(tableSourceNode, parsed, { term: searchFilterActive ? term : '', filter, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 })
+          : this.tableRows(tableSourceNode, parsed, { term: searchFilterActive ? term : '', filter, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 });
         this._tableCache = { cacheKey: tableCacheKey, mode: tableMode, sourcePath: tableSourcePath, res };
       }
       const table = this._tableCache.res;
@@ -2135,10 +2256,10 @@ class Component extends DCLogic {
     } else if (!node) {
       explorerEl = h('div', { style: { padding: '28px 24px', color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, parsed.empty ? 'Nothing to explore yet. Paste JSON or XML, drop a file, or load the sample to build an interactive tree.' : h('span', {}, h('span', { style: { color: tok.sem.err, fontWeight: 700 } }, 'Can\u2019t build tree. '), 'Fix the ' + (parsed.format || '').toUpperCase() + ' error on the left \u2014 the tree updates live once it\u2019s valid.'));
     } else {
-      const filter = S.searchMode === 'filter';
-      if (!this._flatCache || this._flatCache.input !== S.docInput || this._flatCache.collapsed !== S.collapsed || this._flatCache.term !== term || this._flatCache.mode !== S.searchMode) {
-        const keep = (term && filter) ? this.keepSet(node, term) : new Set();
-        this._flatCache = { input: S.docInput, collapsed: S.collapsed, term, mode: S.searchMode, rows: this.flatten(node, { filter, keep, collapsed: S.collapsed }) };
+      const filter = searchFilterActive || (S.explorerMode === 'query' && queryKeepPaths.size > 0);
+      if (!this._flatCache || this._flatCache.input !== S.docInput || this._flatCache.collapsed !== S.collapsed || this._flatCache.term !== term || this._flatCache.mode !== S.searchMode || this._flatCache.query !== (S.explorerMode === 'query' ? query : '')) {
+        const keep = searchFilterActive ? searchKeepPaths : queryKeepPaths;
+        this._flatCache = { input: S.docInput, collapsed: S.collapsed, term, mode: S.searchMode, query: S.explorerMode === 'query' ? query : '', rows: this.flatten(node, { filter, keep, collapsed: S.collapsed }) };
       }
       const rows = this._flatCache.rows;
       this._activeRowIndex = -1;
@@ -2313,13 +2434,6 @@ class Component extends DCLogic {
       queryPrefix: isXml ? 'XPath' : '$', queryPlaceholder: isXml ? "//departments[id='d2']  or  //title" : "$.store.departments[*].title",
       queryStat, queryStatStyle: { font: '600 11px/1 ' + tok.fontMono, color: queryStatOk ? tok.textDim : tok.sem.err, whiteSpace: 'nowrap' },
       onClearQuery: () => this.setState({ query: '', queryDrawerCollapsed: false }),
-      showQueryDrawer,
-      queryDrawerTitle: queryStatOk ? ('Query results (' + queryResults.length + ')') : 'Query error',
-      queryDrawerError: queryError,
-      queryDrawerEl,
-      queryDrawerHasItems: queryDrawerItems.length > 0,
-      onToggleQueryDrawer: () => this.setState(s => ({ queryDrawerCollapsed: !s.queryDrawerCollapsed })),
-      onFocusQueryResult: (p) => this.focusQueryResult(p),
 
       explorerEl, statsEl,
 

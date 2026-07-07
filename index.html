@@ -27,7 +27,7 @@
 <script>
 (function () {
   var appEl = document.getElementById('dc-app-script');
-  fetch('js/app.js')
+  fetch('js/app.js?ts=' + Date.now(), { cache: 'no-store' })
     .then(function (r) { return r.text(); })
     .then(function (code) {
       appEl.textContent = code;
@@ -249,23 +249,6 @@
       </div>
 
       <div ref="{{ treeScrollRef }}" onscroll="{{ onTreeScroll }}" class="rf-scroll" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px;font:400 13px/1.5 var(--font-mono)">{{ explorerEl }}</div>
-
-      <sc-if value="{{ showQueryDrawer }}" hint-placeholder-val="{{ false }}">
-        <div class="rf-query-drawer">
-          <div class="rf-query-drawer-head">
-            <span>{{ queryDrawerTitle }}</span>
-            <button style="{{ navBtnStyle }}" onclick="{{ onToggleQueryDrawer }}" aria-label="Hide query results">✕</button>
-          </div>
-          <sc-if value="{{ queryDrawerError }}" hint-placeholder-val="{{ false }}">
-            <div class="rf-query-drawer-error">Query error: {{ queryDrawerError }}</div>
-          </sc-if>
-          <sc-if value="{{ queryDrawerHasItems }}" hint-placeholder-val="{{ false }}">
-            <div class="rf-query-drawer-list rf-scroll">
-              {{ queryDrawerEl }}
-            </div>
-          </sc-if>
-        </div>
-      </sc-if>
 
       <div style="display:flex;align-items:center;gap:7px;padding:8px 12px;border-top:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap;overflow-x:auto" class="rf-scroll">{{ statsEl }}</div>
     </section>
