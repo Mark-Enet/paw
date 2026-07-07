@@ -935,23 +935,134 @@ class Component extends DCLogic {
     throw new Error('Invalid JSONPath');
   }
 
-  jsonPathCompileFilter(expr) {
-    const m = expr.match(/^@((?:\.[A-Za-z_$][\w$]*|\[(?:-?\d+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\])*)\s*(==|!=|<=|>=|<|>)\s*(.+)$/);
+  jsonPathSplitLogical(expr, op) {
+    const out = [];
+    let cur = '';
+    let depth = 0;
+    let quote = null;
+    for (let i = 0; i < expr.length; i++) {
+      const ch = expr[i];
+      if (quote) {
+        cur += ch;
+        if (ch === '\\' && i + 1 < expr.length) { cur += expr[++i]; continue; }
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === '\'') { quote = ch; cur += ch; continue; }
+      if (ch === '(') { depth++; cur += ch; continue; }
+      if (ch === ')') {
+        depth--;
+        if (depth < 0) throw new Error('Invalid JSONPath');
+        cur += ch;
+        continue;
+      }
+      if (depth === 0 && expr.slice(i, i + op.length) === op) {
+        if (!cur.trim()) throw new Error('Invalid JSONPath');
+        out.push(cur.trim());
+        cur = '';
+        i += op.length - 1;
+        continue;
+      }
+      cur += ch;
+    }
+    if (quote || depth !== 0) throw new Error('Invalid JSONPath');
+    if (!cur.trim()) throw new Error('Invalid JSONPath');
+    out.push(cur.trim());
+    return out;
+  }
+
+  jsonPathStripOuterParens(expr) {
+    let s = (expr || '').trim();
+    while (s.startsWith('(') && s.endsWith(')')) {
+      let depth = 0;
+      let quote = null;
+      let wraps = true;
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (quote) {
+          if (ch === '\\' && i + 1 < s.length) { i++; continue; }
+          if (ch === quote) quote = null;
+          continue;
+        }
+        if (ch === '"' || ch === '\'') { quote = ch; continue; }
+        if (ch === '(') depth++;
+        else if (ch === ')') {
+          depth--;
+          if (depth < 0) throw new Error('Invalid JSONPath');
+          if (depth === 0 && i !== s.length - 1) { wraps = false; break; }
+        }
+      }
+      if (quote || depth !== 0) throw new Error('Invalid JSONPath');
+      if (!wraps) break;
+      s = s.slice(1, -1).trim();
+    }
+    return s;
+  }
+
+  jsonPathParseFilterExpr(expr) {
+    const src = this.jsonPathStripOuterParens(expr);
+    if (!src) throw new Error('Invalid JSONPath');
+    const orParts = this.jsonPathSplitLogical(src, '||');
+    if (orParts.length > 1) return { t: 'or', items: orParts.map(part => this.jsonPathParseFilterExpr(part)) };
+    const andParts = this.jsonPathSplitLogical(src, '&&');
+    if (andParts.length > 1) return { t: 'and', items: andParts.map(part => this.jsonPathParseFilterExpr(part)) };
+    const m = src.match(/^@((?:\.[A-Za-z_$][\w$]*|\[(?:-?\d+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\])*)\s*(==|!=|<=|>=|<|>)\s*(.+)$/);
     if (!m) throw new Error('Invalid JSONPath');
-    const rel = this.parseJsonPathTokens('@' + m[1]);
-    const op = m[2];
-    const rhs = this.jsonPathLiteral(m[3].trim());
-    return (entry) => {
-      const resolved = this.evalJsonPathTokens([{ path: '@', val: entry.val }], rel).map(x => x.val);
-      return resolved.some(lhs => {
-        if (op === '==') return lhs === rhs;
-        if (op === '!=') return lhs !== rhs;
-        if (op === '<') return lhs < rhs;
-        if (op === '<=') return lhs <= rhs;
-        if (op === '>') return lhs > rhs;
-        return lhs >= rhs;
-      });
+    return {
+      t: 'cmp',
+      rel: this.parseJsonPathTokens('@' + m[1]),
+      op: m[2],
+      rhs: this.jsonPathLiteral(m[3].trim())
     };
+  }
+
+  jsonPathExtractFilterExpr(raw) {
+    const src = (raw || '').trim();
+    if (!src.startsWith('?(')) throw new Error('Invalid JSONPath');
+    let depth = 1;
+    let quote = null;
+    let i = 2;
+    for (; i < src.length; i++) {
+      const ch = src[i];
+      if (quote) {
+        if (ch === '\\' && i + 1 < src.length) { i++; continue; }
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === '\'') { quote = ch; continue; }
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        depth--;
+        if (depth === 0) break;
+        if (depth < 0) throw new Error('Invalid JSONPath');
+      }
+    }
+    if (quote || depth !== 0) throw new Error('Invalid JSONPath');
+    const firstExpr = src.slice(2, i).trim();
+    if (!firstExpr) throw new Error('Invalid JSONPath');
+    const tail = src.slice(i + 1).trim();
+    if (!tail) return firstExpr;
+    if (!/^(&&|\|\|)\b/.test(tail) && !/^(&&|\|\|)\s*/.test(tail)) throw new Error('Invalid JSONPath');
+    return (firstExpr + ' ' + tail).trim();
+  }
+
+  jsonPathEvalFilterExpr(ast, entry) {
+    if (ast.t === 'or') return ast.items.some(item => this.jsonPathEvalFilterExpr(item, entry));
+    if (ast.t === 'and') return ast.items.every(item => this.jsonPathEvalFilterExpr(item, entry));
+    const resolved = this.evalJsonPathTokens([{ path: '@', val: entry.val }], ast.rel).map(x => x.val);
+    return resolved.some(lhs => {
+      if (ast.op === '==') return lhs === ast.rhs;
+      if (ast.op === '!=') return lhs !== ast.rhs;
+      if (ast.op === '<') return lhs < ast.rhs;
+      if (ast.op === '<=') return lhs <= ast.rhs;
+      if (ast.op === '>') return lhs > ast.rhs;
+      return lhs >= ast.rhs;
+    });
+  }
+
+  jsonPathCompileFilter(expr) {
+    const ast = this.jsonPathParseFilterExpr(expr);
+    return (entry) => this.jsonPathEvalFilterExpr(ast, entry);
   }
 
   parseJsonPathTokens(path) {
@@ -991,7 +1102,10 @@ class Component extends DCLogic {
       const raw = readBracket();
       if (!raw) throw new Error('Invalid JSONPath');
       if (raw === '*') return { t: recursive ? 'rWild' : 'wild' };
-      if (raw.startsWith('?(') && raw.endsWith(')')) return { t: 'filter', fn: this.jsonPathCompileFilter(raw.slice(2, -1).trim()) };
+      if (raw.startsWith('?(')) {
+        const filterExpr = this.jsonPathExtractFilterExpr(raw);
+        return { t: 'filter', fn: this.jsonPathCompileFilter(filterExpr) };
+      }
       const unionParts = this.jsonPathSplit(raw, ',');
       if (unionParts.length > 1) {
         return {

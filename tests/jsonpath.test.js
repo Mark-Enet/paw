@@ -81,7 +81,42 @@ test('supports simple array filters', () => {
   assert.deepEqual(valuesFor('$.store.book[?(@.price < 10)].title'), ['Sword', 'Map']);
 });
 
+test('supports logical AND inside filters with parenthesized clauses', () => {
+  const values = [
+    { value: 90 },
+    { value: 100 },
+    { value: 110 },
+    { value: 130 },
+  ];
+  const result = component.runJsonPath(values, '$[?((@.value >= 100) && (@.value < 120))].value');
+  assert.equal(result.ok, true);
+  assert.deepEqual(Array.from(result.results, (entry) => entry.val), [100, 110]);
+});
+
+test('supports logical AND when filter starts as ?(a) && (b)', () => {
+  const values = [
+    { value: 90 },
+    { value: 100 },
+    { value: 110 },
+    { value: 130 },
+  ];
+  const result = component.runJsonPath(values, '$[?(@.value >= 100) && (@.value < 120)].value');
+  assert.equal(result.ok, true);
+  assert.deepEqual(Array.from(result.results, (entry) => entry.val), [100, 110]);
+});
+
+test('supports logical OR inside filters', () => {
+  const result = component.runJsonPath(sample, '$.store.book[?((@.price < 7) || (@.category == "history"))].title');
+  assert.equal(result.ok, true);
+  assert.deepEqual(Array.from(result.results, (entry) => entry.val), ['Shield', 'Map']);
+});
+
 test('rejects malformed JSONPath expressions instead of silently succeeding', () => {
   const result = component.runJsonPath(sample, '$.store[');
+  assert.equal(result.ok, false);
+});
+
+test('rejects malformed logical filters', () => {
+  const result = component.runJsonPath(sample, '$.store.book[?(@.price >= 10 &&)].title');
   assert.equal(result.ok, false);
 });
