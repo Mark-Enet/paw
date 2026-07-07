@@ -853,6 +853,9 @@
   .rf-scroll button {
     transition: background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
   }
+  .rf-scroll button svg {
+    pointer-events: none;
+  }
   .rf-scroll button:not(:disabled):hover {
     background-image: linear-gradient(var(--accent-weak, rgba(120,120,255,.08)), var(--accent-weak, rgba(120,120,255,.08))) !important;
     border-color: var(--accent,#6d5efc) !important;

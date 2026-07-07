@@ -97,6 +97,16 @@
       <div class="rf-source-toolbar rf-source-toolbar-main" style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap">
         <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase;margin-right:2px">Source</span>
         <span style="{{ badgeStyle }}">{{ formatBadge }}</span>
+        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onUploadClick }}">{{ iconUpload }}Upload file</button>
+        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSample }}">{{ iconFileDoc }}Sample</button>
+        <div style="flex:1"></div>
+        <button title="Copy" aria-label="Copy" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCopySource }}">{{ iconCopy }}</button>
+        <button title="Share" aria-label="Share" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onShare }}">{{ iconShare }}</button>
+        <button title="Download" aria-label="Download" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDownload }}">{{ iconDownload }}</button>
+        <button title="Clear" aria-label="Clear" style="{{ btnGhost }}" style-hover="{{ btnHover }}" onclick="{{ onClear }}">{{ iconTrash }}</button>
+        <button title="{{ sourceFullscreenLabel }}" aria-label="{{ sourceFullscreenLabel }}" style="{{ fsBtnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSourceFullscreen }}">{{ sourceFullscreenIcon }}</button>
+      </div>
+      <div class="rf-source-toolbar rf-source-toolbar-actions" style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex-wrap:wrap">
         <div class="rf-split-btn" ref="{{ beautifyMenuRef }}" style="{{ splitWrapStyle }}">
           <button class="rf-split-btn-main" style="{{ splitMainStyle }}" style-hover="{{ btnHover }}" onclick="{{ onBeautifyMain }}">{{ iconWand }}Beautify</button>
           <button class="rf-split-btn-toggle" style="{{ splitToggleStyle }}" style-hover="{{ btnHover }}" onclick="{{ onBeautifyToggle }}">▼</button>
@@ -113,17 +123,6 @@
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onToggleWrap }}">{{ wrapLabel }}</button>
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSort }}">{{ iconSortKeys }}Sort keys</button>
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onConvert }}">{{ iconSwap }}{{ convertLabel }}</button>
-        <button title="{{ sourceFullscreenLabel }}" aria-label="{{ sourceFullscreenLabel }}" style="{{ fsBtnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSourceFullscreen }}">{{ sourceFullscreenIcon }}</button>
-      </div>
-
-      <div class="rf-source-toolbar rf-source-toolbar-files" style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid var(--border,#e3e6ef);flex-wrap:wrap">
-        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onUploadClick }}">{{ iconUpload }}Upload file</button>
-        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSample }}">{{ iconFileDoc }}Sample</button>
-        <div style="flex:1"></div>
-        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCopySource }}">{{ iconCopy }}{{ copyLabel }}</button>
-        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onShare }}">{{ iconShare }}{{ shareLabel }}</button>
-        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDownload }}">{{ iconDownload }}Download</button>
-        <button style="{{ btnGhost }}" style-hover="{{ btnHover }}" onclick="{{ onClear }}">{{ iconTrash }}Clear</button>
         <input type="file" ref="{{ fileRef }}" onchange="{{ onUpload }}" accept=".json,.xml,.txt,application/json,text/xml,application/xml" style="display:none">
       </div>
 
