@@ -67,6 +67,7 @@ const LS_KEY = 'refract.studio.v2';
 const ROW_H = 22;
 const TABLE_ROW_H = 34;
 const TABLE_ROW_MIN_H = TABLE_ROW_H - 2;
+const RECORD_ROW_H = TABLE_ROW_H;
 const TABLE_COLS = 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(150px,1fr)';
 const INDEXED_SEG_RE = /\[\d+\]/;
 const TABLE_JSON_MAX_DEPTH = 2;
@@ -175,7 +176,7 @@ class Component extends DCLogic {
   constructor(props) {
     super(props);
     const P = loadPersisted();
-    this.state = {
+    this.state = { 
       mode: P.mode || 'format',
       theme: P.theme || props.theme || 'light',
       direction: P.direction || props.direction || 'aurora',
@@ -203,6 +204,7 @@ class Component extends DCLogic {
       showHelp: false,
       showAbout: false,
       showSettings: false,
+      queryDrawerCollapsed: false,
       shareMsg: null,
       appMeta: APP_META_DEFAULT,
       rememberPrefs: sanitizeRememberPrefs(P.rememberPrefs),
@@ -220,6 +222,7 @@ class Component extends DCLogic {
     this._copyTimer = null;
     this._model = null;
     this._activeRowIndex = -1;
+    this._activeRowHeight = ROW_H;
     this._tableCache = null;
     this._raf = null;
     this._persistTimer = null;
@@ -227,6 +230,42 @@ class Component extends DCLogic {
     this._docTimer = null;
     this._onPageHide = null;
     this._onKey = this.handleKey.bind(this);
+  }
+
+  keepPaths(paths) {
+    const keep = new Set();
+    (paths || []).forEach((path) => {
+      let cur = String(path || '').trim();
+      while (cur) {
+        keep.add(cur);
+        const next = cur.replace(/\/[^/]+$/, '');
+        if (!next || next === cur) break;
+        cur = next;
+      }
+    });
+    return keep;
+  }
+
+  keepPathsForQuery(node, queryPaths) {
+    const keep = new Set();
+    const matches = new Set();
+    const target = new Set();
+    Array.from(queryPaths || []).map((path) => String(path || '').trim()).filter(Boolean).forEach((path) => {
+      target.add(path);
+      const treePath = this.jsonPathToTreePath(path);
+      if (treePath) target.add(treePath);
+    });
+    const walk = (n) => {
+      if (!n) return false;
+      const selfMatched = !!((n.jpath && target.has(n.jpath)) || (n.path && target.has(n.path)));
+      let childMatched = false;
+      if (n.children) n.children.forEach((child) => { if (walk(child)) childMatched = true; });
+      if (selfMatched) matches.add(n.path);
+      if (selfMatched || childMatched) keep.add(n.path);
+      return selfMatched || childMatched;
+    };
+    walk(node);
+    return { keep, matches };
   }
 
   componentDidMount() {
@@ -261,8 +300,11 @@ class Component extends DCLogic {
     if (this._lastMatch !== this.state.matchIndex) {
       this._lastMatch = this.state.matchIndex;
       if (this._activeRowIndex >= 0 && box) {
-        const target = Math.max(0, this._activeRowIndex * ROW_H - box.clientHeight / 2 + ROW_H);
+        const rowH = this._activeRowHeight || ROW_H;
+        const target = Math.max(0, this._activeRowIndex * rowH - box.clientHeight / 2 + rowH);
         box.scrollTop = target; this.setState({ scrollTop: target });
+      } else if (this.activeMatchRef.current) {
+        try { this.activeMatchRef.current.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (e) {}
       }
     }
     const rememberChanged = prevState && (
@@ -271,7 +313,7 @@ class Component extends DCLogic {
       prevState.rememberPrefs.explorer !== this.state.rememberPrefs.explorer ||
       prevState.rememberPrefs.find !== this.state.rememberPrefs.find
     );
-    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB)) {
+    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
       this.schedulePersist();
     }
   }
@@ -392,6 +434,39 @@ class Component extends DCLogic {
       if (found) return found;
     }
     return null;
+  }
+
+  jsonPathToTreePath(path) {
+    const src = (path || '').trim();
+    if (!src || src[0] !== '$') return null;
+    const segs = ['root'];
+    const re = /(?:\.([A-Za-z_$][\w$]*)|\[(\d+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\])/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      if (m[1]) segs.push(m[1]);
+      else if (m[2]) {
+        const raw = m[2];
+        if (/^\d+$/.test(raw)) segs.push(raw);
+        else {
+          try {
+            const key = this.jsonPathUnquote(raw);
+            segs.push(String(key));
+          } catch (e) {
+            return null;
+          }
+        }
+      }
+    }
+    return '/' + segs.join('/');
+  }
+
+  focusQueryResult(path) {
+    const nodePath = this.jsonPathToTreePath(path);
+    if (!nodePath) return;
+    const model = this.buildModel();
+    const target = this.locateNode(model.node, nodePath);
+    if (!target) return;
+    this.setState({ view: 'tree', collapsed: new Set() });
   }
 
   selectTableSource(path, mode) {
@@ -652,6 +727,225 @@ class Component extends DCLogic {
     };
     walk(node);
     return hits;
+  }
+
+  collectRawMatches(text, term) {
+    const hits = [];
+    const src = String(text || '');
+    const q = String(term || '').toLowerCase();
+    if (!src || !q) return hits;
+    const low = src.toLowerCase();
+    let from = 0;
+    while (true) {
+      const idx = low.indexOf(q, from);
+      if (idx === -1) break;
+      hits.push({ start: idx, end: idx + q.length });
+      from = idx + q.length;
+      if (hits.length >= 3000) break;
+    }
+    return hits;
+  }
+
+  renderRawSearch(content, term, hits, activeIdx, tok) {
+    const src = content;
+    if (!src || !term || !hits || !hits.length) return src;
+
+    const highlightText = (text, state) => {
+      const value = String(text || '');
+      if (!value) { state.offset += value.length; return value; }
+
+      const startOffset = state.offset;
+      const endOffset = startOffset + value.length;
+      let cursor = 0;
+      let hitIndex = state.hitIndex || 0;
+      const pieces = [];
+
+      while (hitIndex < hits.length && hits[hitIndex].end <= startOffset) hitIndex++;
+
+      for (let i = hitIndex; i < hits.length; i++) {
+        const hit = hits[i];
+        if (hit.start >= endOffset) break;
+        const sliceStart = Math.max(hit.start, startOffset);
+        const sliceEnd = Math.min(hit.end, endOffset);
+        if (sliceStart > startOffset + cursor) pieces.push(value.slice(cursor, sliceStart - startOffset));
+        const isActive = i === activeIdx;
+        pieces.push(h('span', {
+          key: 'rawm' + i + ':' + sliceStart,
+          ref: isActive ? this.activeMatchRef : null,
+          style: {
+            background: isActive ? tok.match.active : tok.match.bg,
+            borderRadius: '2px',
+            boxShadow: isActive ? '0 0 0 1px ' + tok.accent : 'none',
+            color: 'inherit',
+          }
+        }, value.slice(sliceStart - startOffset, sliceEnd - startOffset)));
+        cursor = sliceEnd - startOffset;
+        if (cursor >= value.length) break;
+      }
+
+      if (cursor < value.length) pieces.push(value.slice(cursor));
+      state.offset = endOffset;
+      state.hitIndex = hitIndex;
+      return pieces.length === 1 ? pieces[0] : pieces;
+    };
+
+    const walk = (node, state) => {
+      if (node == null || node === false) return node;
+      if (typeof node === 'string' || typeof node === 'number') return highlightText(node, state);
+      if (Array.isArray(node)) {
+        return node.flatMap(child => walk(child, state)).filter(v => v != null && v !== false);
+      }
+      if (React.isValidElement(node)) {
+        const children = node.props && node.props.children != null ? walk(node.props.children, state) : node.props.children;
+        return React.cloneElement(node, Object.assign({}, node.props), children);
+      }
+      return node;
+    };
+
+    return walk(src, { offset: 0, hitIndex: 0 });
+  }
+
+  jsonLeafValue(n) {
+    if (!n) return undefined;
+    if (n.vType === 'null') return null;
+    if (n.vType === 'boolean') return String(n.disp) === 'true';
+    if (n.vType === 'number') return Number(n.disp);
+    return n.disp != null ? n.disp : '';
+  }
+
+  jsonFilteredValue(n, keep, matchPaths, forceAll, isRoot) {
+    if (!n) return undefined;
+    if (n.kind === 'leaf') {
+      if (!isRoot && !forceAll && !(keep && keep.has(n.path)) && !(matchPaths && matchPaths.has(n.path))) return undefined;
+      return this.jsonLeafValue(n);
+    }
+    const matchedHere = !!(matchPaths && matchPaths.has(n.path));
+    if (n.kind === 'array') {
+      const out = [];
+      n.children.forEach(child => {
+        const val = this.jsonFilteredValue(child, keep, matchPaths, false, false);
+        if (val !== undefined) out.push(val);
+      });
+      if (out.length) return out;
+      return (isRoot || matchedHere || forceAll) ? [] : undefined;
+    }
+    const out = {};
+    n.children.forEach(child => {
+      if (child.kind === 'leaf' && child.vType === 'attr') return;
+      const val = this.jsonFilteredValue(child, keep, matchPaths, false, false);
+      if (val !== undefined) out[String(child.key)] = val;
+    });
+    if (Object.keys(out).length) return out;
+    return (isRoot || matchedHere || forceAll) ? {} : undefined;
+  }
+
+  xmlFilteredPayload(n, keep, matchPaths, level, forceAll, isRoot) {
+    const ind = this.indentStr();
+    const pad = ind.repeat(level);
+    const tagName = n && n.path ? String(n.path).split('/').pop().replace(/\[\d+\]$/, '') : (n && n.el && n.el.nodeName ? n.el.nodeName : String(n && n.key != null ? n.key : ''));
+    if (!n) return '';
+    if (n.kind === 'leaf') {
+      if (n.vType === 'attr') return '';
+      const text = n.disp == null ? '' : String(n.disp);
+      if (!isRoot && !forceAll && !(keep && keep.has(n.path)) && !(matchPaths && matchPaths.has(n.path))) return '';
+      if (n.vType === 'text') return text.trim() ? pad + this.esc(text.trim()) + '\n' : '';
+      return text ? pad + '<' + tagName + '>' + this.esc(text) + '</' + tagName + '>\n' : pad + '<' + tagName + '/>\n';
+    }
+    const full = forceAll || (matchPaths && matchPaths.has(n.path));
+    if (n.kind === 'array') {
+      return (n.children || []).map(child => this.xmlFilteredPayload(child, keep, matchPaths, level, full, false)).filter(Boolean).join('');
+    }
+    const attrs = [];
+    const visible = [];
+    let hasElementChild = false;
+    const textParts = [];
+    (n.children || []).forEach(child => {
+      if (child.kind === 'leaf' && child.vType === 'attr') {
+        if (full || (keep && keep.has(child.path))) attrs.push(' ' + child.key.slice(1) + '="' + this.esc(child.disp == null ? '' : String(child.disp)) + '"');
+        return;
+      }
+      if (child.kind === 'leaf' && child.vType === 'text') {
+        if (!full && !(keep && keep.has(child.path)) && !(matchPaths && matchPaths.has(child.path))) return;
+        const text = child.disp == null ? '' : String(child.disp).trim();
+        if (!text) return;
+        textParts.push(text);
+        visible.push({ kind: 'text', rendered: pad + ind + this.esc(text) + '\n' });
+        return;
+      }
+      const rendered = this.xmlFilteredPayload(child, keep, matchPaths, level + 1, full, false);
+      if (rendered !== '') {
+        hasElementChild = true;
+        visible.push({ kind: 'node', rendered });
+      }
+    });
+    const textOnly = !hasElementChild;
+    const text = textParts.join('').trim();
+    if (textOnly && text) return pad + '<' + tagName + attrs.join('') + '>' + this.esc(text) + '</' + tagName + '>\n';
+    if (!visible.length) return (isRoot || full || forceAll) ? pad + '<' + tagName + attrs.join('') + '/>\n' : '';
+    if (textOnly && !text) return (isRoot || full || forceAll) ? pad + '<' + tagName + attrs.join('') + '/>\n' : '';
+    return pad + '<' + tagName + attrs.join('') + '>\n' + visible.map(v => v.rendered).join('') + pad + '</' + tagName + '>\n';
+  }
+
+  xmlFilteredCompact(n, keep, matchPaths, forceAll, isRoot) {
+    if (!n) return '';
+    if (n.kind === 'leaf') {
+      if (n.vType === 'attr') return '';
+      const text = n.disp == null ? '' : String(n.disp);
+      if (!isRoot && !forceAll && !(keep && keep.has(n.path)) && !(matchPaths && matchPaths.has(n.path))) return '';
+      if (n.vType === 'text') return this.esc(text.trim());
+      const tagName = n.el && n.el.nodeName ? n.el.nodeName : String(n.key != null ? n.key : '');
+      return text ? '<' + tagName + '>' + this.esc(text) + '</' + tagName + '>' : '<' + tagName + '/>';
+    }
+
+    const tagName = n.el && n.el.nodeName ? n.el.nodeName : String(n.path ? n.path.split('/').pop().replace(/\[\d+\]$/, '') : (n.key != null ? n.key : ''));
+    const full = forceAll || (matchPaths && matchPaths.has(n.path));
+    if (n.kind === 'array') {
+      return (n.children || []).map(child => this.xmlFilteredCompact(child, keep, matchPaths, full, false)).filter(Boolean).join('');
+    }
+
+    const attrs = [];
+    const body = [];
+    const textBits = [];
+    (n.children || []).forEach(child => {
+      if (child.kind === 'leaf' && child.vType === 'attr') {
+        if (full || (keep && keep.has(child.path))) attrs.push(' ' + child.key.slice(1) + '="' + this.esc(child.disp == null ? '' : String(child.disp)) + '"');
+        return;
+      }
+      if (child.kind === 'leaf' && child.vType === 'text') {
+        if (!full && !(keep && keep.has(child.path)) && !(matchPaths && matchPaths.has(child.path))) return;
+        const text = child.disp == null ? '' : String(child.disp).trim();
+        if (text) textBits.push(this.esc(text));
+        return;
+      }
+      const rendered = this.xmlFilteredCompact(child, keep, matchPaths, full, false);
+      if (rendered !== '') body.push(rendered);
+    });
+
+    const text = textBits.join('');
+    if (!body.length && !text) return (isRoot || full || forceAll) ? '<' + tagName + attrs.join('') + '/>' : '';
+    if (!body.length) return '<' + tagName + attrs.join('') + '>' + text + '</' + tagName + '>';
+    return '<' + tagName + attrs.join('') + '>' + text + body.join('') + '</' + tagName + '>';
+  }
+
+  explorerPayloadText(parsed, node, term, matchPaths, keepPaths) {
+    const hasFilter = !!(term || (matchPaths && matchPaths.size) || (keepPaths && keepPaths.size));
+    if (!parsed || !parsed.ok || !node || !hasFilter) return parsed && parsed.empty ? '' : (this.state.input || '');
+    const sourceStyle = this.state.input.indexOf('\n') >= 0 ? 'beautify' : 'minify';
+    const keep = keepPaths || this.keepSet(node, term);
+    if (parsed.format === 'json') {
+      const filtered = this.jsonFilteredValue(node, keep, matchPaths, false, true);
+      if (filtered === undefined) return '{}';
+      try {
+        return sourceStyle === 'minify' ? JSON.stringify(filtered) : JSON.stringify(filtered, null, this.indentStr());
+      } catch (e) {
+        return '{}';
+      }
+    }
+    const compact = this.xmlFilteredCompact(node, keep, matchPaths, false, true);
+    const withDecl = '<?xml version="1.0" encoding="UTF-8"?>\n' + compact;
+    if (sourceStyle === 'minify') return withDecl.trim();
+    const prettyParsed = this.parseXML(withDecl);
+    return prettyParsed.ok ? this.prettyXml(prettyParsed.doc) : withDecl.trim();
   }
 
   keepSet(node, term) {
@@ -1308,6 +1602,36 @@ class Component extends DCLogic {
     return node.textContent != null ? node.textContent : '';
   }
 
+  xmlNodeModelPath(node) {
+    if (!node) return '';
+    if (node.nodeType === 2) {
+      const base = this.xmlNodeModelPath(node.ownerElement);
+      return base ? (base + '/@' + node.nodeName) : '';
+    }
+    if (node.nodeType === 3) {
+      const base = this.xmlNodeModelPath(node.parentElement);
+      return base ? (base + '/#text') : '';
+    }
+    if (node.nodeType !== 1) return '';
+    const segs = [];
+    let cur = node;
+    while (cur && cur.nodeType === 1) {
+      const parent = cur.parentElement;
+      if (parent) {
+        const sibs = Array.from(parent.children || []).filter((c) => c.nodeName === cur.nodeName);
+        if (sibs.length > 1) {
+          segs.unshift(cur.nodeName + '[' + (sibs.indexOf(cur) + 1) + ']');
+        } else {
+          segs.unshift(cur.nodeName);
+        }
+      } else {
+        segs.unshift(cur.nodeName);
+      }
+      cur = parent;
+    }
+    return '/' + segs.join('/');
+  }
+
   runXPath(doc, path) {
     const p = path.trim();
     if (!p) return { ok: true, results: [] };
@@ -1318,14 +1642,14 @@ class Component extends DCLogic {
       else if (xr.resultType === XPathResult.NUMBER_TYPE) results.push({ path: p, val: xr.numberValue });
       else if (xr.resultType === XPathResult.BOOLEAN_TYPE) results.push({ path: p, val: xr.booleanValue });
       else if (xr.resultType === XPathResult.ANY_UNORDERED_NODE_TYPE || xr.resultType === XPathResult.FIRST_ORDERED_NODE_TYPE) {
-        if (xr.singleNodeValue) results.push({ path: xr.singleNodeValue.nodeName, val: this.xpathNodeValue(xr.singleNodeValue) });
+        if (xr.singleNodeValue) results.push({ path: xr.singleNodeValue.nodeName, val: this.xpathNodeValue(xr.singleNodeValue), node: xr.singleNodeValue, modelPath: this.xmlNodeModelPath(xr.singleNodeValue) });
       } else if (xr.resultType === XPathResult.UNORDERED_NODE_ITERATOR_TYPE || xr.resultType === XPathResult.ORDERED_NODE_ITERATOR_TYPE) {
         let node;
-        while ((node = xr.iterateNext())) results.push({ path: node.nodeName, val: this.xpathNodeValue(node) });
+        while ((node = xr.iterateNext())) results.push({ path: node.nodeName, val: this.xpathNodeValue(node), node, modelPath: this.xmlNodeModelPath(node) });
       } else {
         for (let i = 0; i < xr.snapshotLength; i++) {
           const node = xr.snapshotItem(i);
-          results.push({ path: node.nodeName, val: this.xpathNodeValue(node) });
+          results.push({ path: node.nodeName, val: this.xpathNodeValue(node), node, modelPath: this.xmlNodeModelPath(node) });
         }
       }
       return { ok: true, results };
@@ -1502,11 +1826,13 @@ class Component extends DCLogic {
     if (!node || !parsed || !parsed.ok) return { rows, suitable: false };
     const term = (ctx.term || '').toLowerCase();
     const inFilter = ctx.filter && !!term;
+    const pathFilter = ctx.pathFilter && ctx.keep && ctx.keep.size > 0;
     const walk = (n, depth) => {
       if (!n) return;
       if (n.kind === 'leaf') {
         const key = n.key == null ? '' : String(n.key);
         const value = n.vType === 'null' ? 'null' : String(n.disp == null ? '' : n.disp);
+        if (pathFilter && !ctx.keep.has(n.path)) return;
         const keyMatch = term && key.toLowerCase().includes(term);
         const valMatch = term && value.toLowerCase().includes(term);
         if (inFilter && !(keyMatch || valMatch)) return;
@@ -1526,6 +1852,7 @@ class Component extends DCLogic {
 
     const term = (ctx.term || '').toLowerCase();
     const inFilter = ctx.filter && !!term;
+    const pathFilter = ctx.pathFilter && ctx.keep && ctx.keep.size > 0;
     const rowNodes = node.kind === 'array' && node.children && node.children.length ? node.children : [node];
     const columns = [];
     const seen = new Set();
@@ -1544,30 +1871,48 @@ class Component extends DCLogic {
 
     const rowFields = (rowNode) => {
       const fields = {};
-      const pushField = (key, value) => {
+      const fieldMeta = {};
+      const pushField = (key, value, nodePath, part) => {
         if (!key) return;
         fields[key] = value;
+        fieldMeta[key] = {
+          nodePath: nodePath || rowNode.path,
+          part: part || 'v'
+        };
         addColumn(key);
       };
 
       if (!rowNode.children || !rowNode.children.length) {
-        pushField('value', cellText(rowNode));
-        return fields;
+        pushField('value', cellText(rowNode), rowNode.path, 'v');
+        return { fields, fieldMeta };
       }
 
       rowNode.children.forEach(child => {
         const key = child.key == null ? '' : String(child.key);
         if (!key) return;
-        pushField(key, cellText(child));
+        pushField(key, cellText(child), child.path, 'v');
       });
 
-      if (!Object.keys(fields).length) pushField('value', cellText(rowNode));
-      return fields;
+      if (!Object.keys(fields).length) pushField('value', cellText(rowNode), rowNode.path, 'v');
+      return { fields, fieldMeta };
     };
 
     rowNodes.forEach((rowNode, index) => {
-      const fields = rowFields(rowNode);
+      const rowData = rowFields(rowNode);
+      const fields = rowData.fields;
+      const fieldMeta = rowData.fieldMeta;
       const rowLabel = rowNode.jpath || rowNode.path || String(index);
+      if (pathFilter) {
+        let matchesPath = ctx.keep.has(rowNode.path);
+        if (!matchesPath) {
+          const keys = Object.keys(fieldMeta);
+          for (let i = 0; i < keys.length; i++) {
+            const meta = fieldMeta[keys[i]];
+            if (meta && ctx.keep.has(meta.nodePath)) { matchesPath = true; break; }
+          }
+        }
+        if (!matchesPath) return;
+      }
       const matches = term
         ? Object.keys(fields).some(key => key.toLowerCase().includes(term) || String(fields[key]).toLowerCase().includes(term)) || rowLabel.toLowerCase().includes(term)
         : true;
@@ -1578,6 +1923,7 @@ class Component extends DCLogic {
         path: rowLabel,
         index,
         fields,
+        fieldMeta,
       });
     });
 
@@ -1623,8 +1969,13 @@ class Component extends DCLogic {
     const gridTemplateColumns = ['minmax(220px,1.4fr)'].concat(columns.map(() => 'minmax(140px,1fr)')).concat('auto').join(' ');
 
     return h('div', { className: 'rf-record-row rf-row', style: { display: 'grid', gridTemplateColumns, gap: '10px', alignItems: 'stretch', minHeight: TABLE_ROW_MIN_H + 'px', padding: '6px 10px', borderBottom: '1px solid ' + tok.border + '66' } },
-      h('div', { className: 'rf-record-cell-path', title: row.path, style: { color: tok.accent, font: '600 11px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', alignSelf: 'center' } }, row.path),
-      columns.map(col => h('div', { key: col, className: 'rf-record-cell', title: row.fields[col] || '', style: { color: tok.text, font: '400 12px/1.5 ' + tok.fontMono, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflow: 'visible', minWidth: 0 } }, row.fields[col] == null || row.fields[col] === '' ? '—' : row.fields[col])),
+      h('div', { className: 'rf-record-cell-path', title: row.path, style: { color: tok.accent, font: '600 11px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', alignSelf: 'center' } }, this.hl(row.path, ctx, row.node.path, 'k')),
+      columns.map(col => {
+        const meta = (row.fieldMeta && row.fieldMeta[col]) || { nodePath: row.node.path, part: 'v' };
+        const rawVal = row.fields[col];
+        const val = rawVal == null || rawVal === '' ? '—' : String(rawVal);
+        return h('div', { key: col, className: 'rf-record-cell', title: rawVal == null ? '' : String(rawVal), style: { color: tok.text, font: '400 12px/1.5 ' + tok.fontMono, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflow: 'visible', minWidth: 0 } }, this.hl(val, ctx, meta.nodePath, meta.part));
+      }),
       h('span', { className: 'rf-acts rf-record-acts', style: { display: 'inline-flex', gap: '4px', justifySelf: 'end', alignSelf: 'center' } },
         h('button', {
           onClick: (e) => { e.stopPropagation(); this.copy(row.path, row.path + ':path'); },
@@ -1722,54 +2073,141 @@ class Component extends DCLogic {
       this._matchCache = { input: S.docInput, term, matches: term ? this.collectMatches(node, term) : [] };
     }
     const matches = this._matchCache.matches;
-    const activePath = matches.length ? matches[((S.matchIndex % matches.length) + matches.length) % matches.length] : null;
-    const ctx = { tok, term, activePath };
-    const matchLabel = matches.length ? (((S.matchIndex % matches.length) + matches.length) % matches.length + 1) + '/' + matches.length : '0/0';
-
-    // query
+    const searchFilterActive = S.explorerMode === 'search' && S.searchMode === 'filter' && !!term;
+    const searchKeepPaths = searchFilterActive ? this.keepSet(node, term) : new Set();
+    const searchFilterMatchPaths = searchFilterActive
+      ? new Set(matches.map(m => m.replace(/#[kv]$/, '')))
+      : new Set();
+    const explorerPayloadText = this.explorerPayloadText(parsed, node, term, searchFilterMatchPaths, searchKeepPaths);
+    const rawMatchSource = (S.view === 'raw' && term)
+      ? (searchFilterActive ? explorerPayloadText : (parsed.empty ? '' : S.input))
+      : '';
+    const rawMatches = (S.view === 'raw' && term) ? this.collectRawMatches(rawMatchSource, term) : [];
+    const activePool = (S.view === 'raw' ? rawMatches : matches);
+    const activeIndex = activePool.length ? ((S.matchIndex % activePool.length) + activePool.length) % activePool.length : -1;
     const savedQuery = S.query.trim();
     const query = S.explorerMode === 'query' ? savedQuery : '';
     let explorerEl, queryStat = '', queryStatOk = true;
+    let queryResults = [];
+    let queryError = '';
+    let queryMatchPaths = new Set();
+    let queryKeepPaths = new Set();
     if (query) {
       const qr = isXml ? this.runXPath(parsed.doc, query) : this.runJsonPath(parsed.ok ? parsed.value : {}, query);
-      if (!qr.ok) { queryStat = 'error'; queryStatOk = false; explorerEl = h('div', { style: { padding: '24px', color: tok.sem.err, font: '500 13px/1.5 ' + tok.fontUi } }, 'Query error: ' + (qr.error || 'invalid')); }
+      if (!qr.ok) { queryStat = 'error'; queryStatOk = false; queryError = qr.error || 'invalid'; }
       else {
-        queryStat = qr.results.length + (qr.results.length === 1 ? ' match' : ' matches');
-        if (!qr.results.length) explorerEl = h('div', { style: { padding: '24px', color: tok.textFaint, font: '500 13px/1.5 ' + tok.fontUi } }, 'No matches for this query.');
-        else explorerEl = h('div', { style: { padding: '4px 6px' } }, qr.results.map((r, i) => {
-          const copyKey = 'q' + i;
-          const valueText = typeof r.val === 'object' ? JSON.stringify(r.val, null, 2) : String(r.val);
-          return h('div', { key: i, style: { padding: '9px 10px', borderRadius: '8px', marginBottom: '4px', background: tok.panel2, border: '1px solid ' + tok.border } },
-            h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '5px' } },
-              h('span', { style: { font: '600 11px/1.3 ' + tok.fontMono, color: tok.accent, wordBreak: 'break-all' } }, r.path),
-              h('button', { onClick: () => this.copy(valueText, copyKey), style: { font: '600 9.5px/1 ' + tok.fontUi, textTransform: 'uppercase', color: this.state.copied === copyKey ? tok.sem.ok : tok.textDim, background: tok.elev, border: '1px solid ' + tok.border, borderRadius: '4px', padding: '3px 6px', cursor: 'pointer', flex: '0 0 auto' } }, this.state.copied === copyKey ? '✓' : 'copy')
-            ),
-            h('div', { style: { font: '400 12px/1.5 ' + tok.fontMono, color: tok.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflow: 'visible' } }, valueText)
-          );
-        }));
+        queryResults = qr.results || [];
+        queryStat = queryResults.length + (queryResults.length === 1 ? ' match' : ' matches');
+        if (isJson) {
+          const queryPaths = new Set(queryResults.map((r) => String(r.path || '').trim()).filter(Boolean));
+          const queryTargets = new Set();
+          queryPaths.forEach((path) => {
+            queryTargets.add(path);
+            const treePath = this.jsonPathToTreePath(path);
+            if (treePath) queryTargets.add(treePath);
+          });
+          const keep = new Set();
+          const matches = new Set();
+          const addSubtree = (n) => {
+            if (!n) return;
+            keep.add(n.path);
+            if (n.children) n.children.forEach(addSubtree);
+          };
+          const walkQuery = (n) => {
+            if (!n) return false;
+            const selfMatched = !!((n.jpath && queryTargets.has(n.jpath)) || (n.path && queryTargets.has(n.path)));
+            let childMatched = false;
+            if (n.children) n.children.forEach((child) => { if (walkQuery(child)) childMatched = true; });
+            if (selfMatched) matches.add(n.path);
+            if (selfMatched) addSubtree(n);
+            if (selfMatched || childMatched) keep.add(n.path);
+            return selfMatched || childMatched;
+          };
+          walkQuery(node);
+          queryMatchPaths = matches;
+          queryKeepPaths = keep;
+        } else if (isXml) {
+          const keep = new Set();
+          const matches = new Set();
+          const queryTargets = new Set(queryResults.map((r) => String((r && r.modelPath) || '').trim()).filter(Boolean));
+          const matchedNodes = new Set(queryResults.map((r) => r && r.node).filter(Boolean));
+          const addSubtree = (n) => {
+            if (!n) return;
+            keep.add(n.path);
+            if (n.children) n.children.forEach(addSubtree);
+          };
+          const walkXml = (n) => {
+            if (!n) return false;
+            const selfMatched = queryTargets.has(n.path) || !!(n.el && matchedNodes.has(n.el));
+            let childMatched = false;
+            if (n.children) n.children.forEach((child) => { if (walkXml(child)) childMatched = true; });
+            if (selfMatched) matches.add(n.path);
+            if (selfMatched) addSubtree(n);
+            if (selfMatched || childMatched) keep.add(n.path);
+            return selfMatched || childMatched;
+          };
+          walkXml(node);
+          queryMatchPaths = matches;
+          queryKeepPaths = keep;
+        }
       }
-    } else if (S.view === 'raw') {
+    }
+    const filterMatchPaths = searchFilterActive ? searchFilterMatchPaths : queryMatchPaths;
+    const filterKeepPaths = searchFilterActive ? searchKeepPaths : queryKeepPaths;
+    const activePath = (S.explorerMode === 'query' && queryMatchPaths.size)
+      ? Array.from(queryMatchPaths)[0]
+      : ((S.view === 'raw' || activeIndex < 0) ? null : matches[activeIndex]);
+    const ctx = { tok, term: searchFilterActive ? term : '', activePath, filter: searchFilterActive || queryKeepPaths.size > 0, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 };
+    const matchLabel = activePool.length ? (activeIndex + 1) + '/' + activePool.length : '0/0';
+
+    if (S.view === 'raw') {
       const src = parsed.empty ? '' : S.input;
-      const lines = src.split('\n');
-      explorerEl = h('div', { style: { display: 'flex', minWidth: 0 } },
+      this._activeRowIndex = -1;
+      this._activeRowHeight = ROW_H;
+      const rawSearchActive = S.explorerMode === 'search' && !!term && rawMatches.length > 0;
+      const rawBase = (S.explorerMode === 'query' && queryKeepPaths.size)
+        ? this.explorerPayloadText(parsed, node, '', queryMatchPaths, queryKeepPaths)
+        : ((S.explorerMode === 'search' && S.searchMode === 'filter' && term)
+          ? explorerPayloadText
+          : src);
+      const lines = rawBase.split('\n');
+      const rawDisplay = rawBase.length <= 60000 ? this.highlight(rawBase, parsed.format, tok) : rawBase;
+      const rawContent = rawSearchActive
+        ? this.renderRawSearch(rawDisplay, term, rawMatches, activeIndex, tok)
+        : rawDisplay;
+      const rawMain = h('div', { style: { display: 'flex', minWidth: 0 } },
         showLN ? h('pre', { style: { margin: 0, padding: '4px 10px 4px 0', textAlign: 'right', color: tok.textFaint, font: '400 13px/20px ' + tok.fontMono, borderRight: '1px solid ' + tok.border, flex: '0 0 auto' } }, lines.map((_, i) => (i + 1)).join('\n')) : null,
-        h('pre', { style: { margin: 0, padding: '4px 0 4px 12px', font: '400 13px/20px ' + tok.fontMono, whiteSpace: 'pre-wrap', wordBreak: 'break-word', flex: 1, minWidth: 0 } }, src.length <= 60000 ? this.highlight(src, parsed.format, tok) : src));
+        h('pre', { style: { margin: 0, padding: '4px 0 4px 12px', font: '400 13px/20px ' + tok.fontMono, whiteSpace: 'pre-wrap', wordBreak: 'break-word', flex: 1, minWidth: 0 } }, rawContent));
+      explorerEl = rawMain;
     } else if (S.view === 'table') {
       const tableMode = S.tableMode || 'path';
-      const filter = S.searchMode === 'filter';
+      const filter = searchFilterActive || (S.explorerMode === 'query' && queryKeepPaths.size > 0);
       const tableSourceNode = node ? (this.locateNode(node, S.tableSourcePath) || node) : null;
       const tableSourcePath = tableSourceNode ? tableSourceNode.path : '';
-      const tableCacheKey = S.docInput + '|' + tableMode + '|' + tableSourcePath + '|' + term + '|' + S.searchMode;
+      const tableCacheKey = S.docInput + '|' + tableMode + '|' + tableSourcePath + '|' + term + '|' + S.searchMode + '|' + (S.explorerMode === 'query' ? query : '');
       if (!this._tableCache || this._tableCache.cacheKey !== tableCacheKey) {
         const res = tableMode === 'record'
-          ? this.recordTableRows(tableSourceNode, parsed, { term, filter })
-          : this.tableRows(tableSourceNode, parsed, { term, filter });
+          ? this.recordTableRows(tableSourceNode, parsed, { term: searchFilterActive ? term : '', filter, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 })
+          : this.tableRows(tableSourceNode, parsed, { term: searchFilterActive ? term : '', filter, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 });
         this._tableCache = { cacheKey: tableCacheKey, mode: tableMode, sourcePath: tableSourcePath, res };
       }
       const table = this._tableCache.res;
       const rows = table.rows;
       this._activeRowIndex = -1;
-      if (activePath) { const np = activePath.replace(/#[kv]$/, ''); this._activeRowIndex = rows.findIndex(r => r.node.path === np); }
+      this._activeRowHeight = tableMode === 'record' ? RECORD_ROW_H : TABLE_ROW_H;
+      if (activePath) {
+        const np = activePath.replace(/#[kv]$/, '');
+        this._activeRowIndex = rows.findIndex((r) => {
+          if (r.node.path === np) return true;
+          if (!r.fieldMeta) return false;
+          const keys = Object.keys(r.fieldMeta);
+          for (let i = 0; i < keys.length; i++) {
+            const meta = r.fieldMeta[keys[i]];
+            if (meta && meta.nodePath === np) return true;
+          }
+          return false;
+        });
+      }
       if (tableMode === 'record' && tableSourceNode && tableSourceNode.kind === 'leaf') {
         explorerEl = h('div', { style: { padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '12px' } },
           h('div', { style: { color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, 'Record Table needs an object, array, or element node. Pick a container in the tree, or switch back to Path Table.'),
@@ -1818,13 +2256,14 @@ class Component extends DCLogic {
     } else if (!node) {
       explorerEl = h('div', { style: { padding: '28px 24px', color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, parsed.empty ? 'Nothing to explore yet. Paste JSON or XML, drop a file, or load the sample to build an interactive tree.' : h('span', {}, h('span', { style: { color: tok.sem.err, fontWeight: 700 } }, 'Can\u2019t build tree. '), 'Fix the ' + (parsed.format || '').toUpperCase() + ' error on the left \u2014 the tree updates live once it\u2019s valid.'));
     } else {
-      const filter = S.searchMode === 'filter';
-      if (!this._flatCache || this._flatCache.input !== S.docInput || this._flatCache.collapsed !== S.collapsed || this._flatCache.term !== term || this._flatCache.mode !== S.searchMode) {
-        const keep = (term && filter) ? this.keepSet(node, term) : new Set();
-        this._flatCache = { input: S.docInput, collapsed: S.collapsed, term, mode: S.searchMode, rows: this.flatten(node, { filter, keep, collapsed: S.collapsed }) };
+      const filter = searchFilterActive || (S.explorerMode === 'query' && queryKeepPaths.size > 0);
+      if (!this._flatCache || this._flatCache.input !== S.docInput || this._flatCache.collapsed !== S.collapsed || this._flatCache.term !== term || this._flatCache.mode !== S.searchMode || this._flatCache.query !== (S.explorerMode === 'query' ? query : '')) {
+        const keep = searchFilterActive ? searchKeepPaths : queryKeepPaths;
+        this._flatCache = { input: S.docInput, collapsed: S.collapsed, term, mode: S.searchMode, query: S.explorerMode === 'query' ? query : '', rows: this.flatten(node, { filter, keep, collapsed: S.collapsed }) };
       }
       const rows = this._flatCache.rows;
       this._activeRowIndex = -1;
+      this._activeRowHeight = ROW_H;
       if (activePath) { const np = activePath.replace(/#[kv]$/, ''); this._activeRowIndex = rows.findIndex(r => r.node.path === np && r.type !== 'close'); }
       explorerEl = this.windowed(rows, ctx);
     }
@@ -1926,6 +2365,10 @@ class Component extends DCLogic {
       explorerFullscreenIcon: S.fullscreenPanel === 'explorer' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
       onSourceFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'source' ? null : 'source' })),
       onExplorerFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'explorer' ? null : 'explorer' })),
+      onCopyExplorer: () => this.copy(explorerPayloadText, '__explorer'),
+      explorerCopyTitle: filterMatchPaths.size ? 'Copy filtered payload' : 'Copy payload',
+      explorerCopyStyle: Object.assign({}, btnStyle, { width: '30px', minWidth: '30px', padding: '0', justifyContent: 'center' }),
+      explorerActionsStyle: { display: 'inline-flex', alignItems: 'center', gap: '7px', marginLeft: 'auto', flex: '0 0 auto', flexWrap: 'nowrap' },
       tableModePathStyle: seg(tableMode === 'path'),
       tableModeRecordStyle: seg(tableMode === 'record'),
       onTableModePath: () => this.setState({ tableMode: 'path' }),
@@ -1985,12 +2428,12 @@ class Component extends DCLogic {
       onModeHighlight: () => this.setState({ searchMode: 'highlight' }), onModeFilter: () => this.setState({ searchMode: 'filter' }),
       explorerMode: S.explorerMode, isSearchToolbarMode: S.explorerMode === 'search', isQueryToolbarMode: S.explorerMode === 'query',
       toolbarSearchStyle: seg(S.explorerMode === 'search'), toolbarQueryStyle: seg(S.explorerMode === 'query'),
-      onToolbarSearchMode: () => this.setState({ explorerMode: 'search' }), onToolbarQueryMode: () => this.setState({ explorerMode: 'query' }),
+      onToolbarSearchMode: () => this.setState({ explorerMode: 'search' }), onToolbarQueryMode: () => this.setState({ explorerMode: 'query', queryDrawerCollapsed: false }),
 
-      query: S.query, onQuery: (e) => this.setState({ query: e.target.value }), hasQuery: !!savedQuery,
+      query: S.query, onQuery: (e) => this.setState({ query: e.target.value, queryDrawerCollapsed: false }), hasQuery: !!savedQuery,
       queryPrefix: isXml ? 'XPath' : '$', queryPlaceholder: isXml ? "//departments[id='d2']  or  //title" : "$.store.departments[*].title",
       queryStat, queryStatStyle: { font: '600 11px/1 ' + tok.fontMono, color: queryStatOk ? tok.textDim : tok.sem.err, whiteSpace: 'nowrap' },
-      onClearQuery: () => this.setState({ query: '' }),
+      onClearQuery: () => this.setState({ query: '', queryDrawerCollapsed: false }),
 
       explorerEl, statsEl,
 

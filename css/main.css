@@ -918,6 +918,71 @@
   }
   .rf-explorer-input-wrap input::placeholder,
   .rf-explorer-query-wrap input::placeholder { color: var(--text-faint,#9096ac); }
+  .rf-query-drawer {
+    border-top: 1px solid var(--border, #e3e6ef);
+    background: var(--panel, #fff);
+    display: flex;
+    flex-direction: column;
+    max-height: 42%;
+    min-height: 130px;
+  }
+  .rf-query-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border, #e3e6ef);
+    background: var(--panel-2, #eef0f7);
+    color: var(--text-dim, #565d73);
+    font: 700 11px/1 var(--font-ui);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .rf-query-drawer-error {
+    margin: 8px 10px 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent,#6d5efc) 35%, var(--border,#e3e6ef));
+    background: var(--accent-weak, rgba(109,94,252,.11));
+    color: var(--text-dim, #565d73);
+    font: 500 12px/1.4 var(--font-ui);
+  }
+  .rf-query-drawer-list {
+    overflow: auto;
+    padding: 8px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .rf-query-drawer-item {
+    border: 1px solid var(--border, #e3e6ef);
+    border-radius: 8px;
+    background: var(--panel-2, #eef0f7);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .rf-query-drawer-path {
+    color: var(--accent, #6d5efc);
+    font: 600 11px/1.35 var(--font-mono);
+    word-break: break-all;
+  }
+  .rf-query-drawer-val {
+    color: var(--text, #1b1e2b);
+    font: 400 11.5px/1.4 var(--font-mono);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 76px;
+    overflow: auto;
+  }
+  .rf-query-drawer-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
   .rf-settings-menu {
     position: relative;
     flex: 0 0 auto;
@@ -1003,6 +1068,18 @@
   @media (max-width: 640px) {
     .rf-header { align-items: flex-start !important; }
     .rf-diff-toolbar > div[style*='flex:1'] { display: none !important; }
+    .rf-query-drawer {
+      position: fixed;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      z-index: 25;
+      max-height: min(52vh, 440px);
+      min-height: 180px;
+      border: 1px solid var(--border, #e3e6ef);
+      border-radius: 12px;
+      box-shadow: var(--shadow, none);
+    }
   }
   @media (max-width: 480px) {
     .rf-header {
