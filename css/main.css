@@ -918,6 +918,42 @@
   }
   .rf-explorer-input-wrap input::placeholder,
   .rf-explorer-query-wrap input::placeholder { color: var(--text-faint,#9096ac); }
+  .rf-settings-menu {
+    position: relative;
+    flex: 0 0 auto;
+  }
+  .rf-settings-pop {
+    position: absolute;
+    top: 38px;
+    right: 0;
+    z-index: 18;
+    width: 290px;
+    padding: 10px;
+    border-radius: var(--radius, 12px);
+    border: 1px solid var(--border, #e3e6ef);
+    background: var(--panel, #fff);
+    box-shadow: var(--shadow, none);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .rf-settings-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .rf-settings-row > span {
+    font: 600 10px/1 var(--font-ui);
+    color: var(--text-faint, #9096ac);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+  .rf-settings-row .rf-style-seg {
+    width: 100%;
+  }
+  .rf-settings-row .rf-style-seg button {
+    flex: 1 1 0;
+  }
   @media (max-width: 920px) {
     .rf-explorer-toolbar { align-items:stretch; }
     .rf-explorer-input-wrap,
@@ -1016,13 +1052,13 @@
     .rf-header-spacer {
       display: none !important;
     }
-    .rf-style-group {
+    .rf-settings-menu {
       width: 100%;
-      justify-content: flex-start;
-      gap: 4px !important;
     }
-    .rf-style-group > span {
-      display: none;
+    .rf-settings-pop {
+      right: auto;
+      left: 0;
+      width: min(94vw, 320px);
     }
     .rf-source-toolbar-main > div[style*='flex:1'],
     .rf-source-toolbar-files > div[style*='flex:1'] {

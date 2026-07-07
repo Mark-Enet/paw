@@ -72,6 +72,24 @@ const INDEXED_SEG_RE = /\[\d+\]/;
 const TABLE_JSON_MAX_DEPTH = 2;
 const TABLE_XML_MIN_SUITABLE_ROWS = 1;
 const MAX_PERSIST = 500000;
+const APP_META_DEFAULT = Object.freeze({
+  appName: 'PAW',
+  tagline: 'PAYLOAD ANALYSIS WINGMAN',
+  byline: 'by Widgemo',
+  version: '0.1.0',
+  copyright: 'Copyright (c) 2026 Widgemo. All rights reserved.'
+});
+
+function sanitizeAppMeta(raw) {
+  const meta = Object.assign({}, APP_META_DEFAULT);
+  if (!raw || typeof raw !== 'object') return meta;
+  if (typeof raw.appName === 'string' && raw.appName.trim()) meta.appName = raw.appName.trim();
+  if (typeof raw.tagline === 'string' && raw.tagline.trim()) meta.tagline = raw.tagline.trim();
+  if (typeof raw.byline === 'string' && raw.byline.trim()) meta.byline = raw.byline.trim();
+  if (typeof raw.version === 'string' && raw.version.trim()) meta.version = raw.version.trim();
+  if (typeof raw.copyright === 'string' && raw.copyright.trim()) meta.copyright = raw.copyright.trim();
+  return meta;
+}
 
 function utf8ToBinary(str) {
   const bytes = new TextEncoder().encode(str);
@@ -166,13 +184,17 @@ class Component extends DCLogic {
       viewportH: 600,
       fullscreenPanel: P.fullscreenPanel || null,
       showHelp: false,
+      showAbout: false,
+      showSettings: false,
       shareMsg: null,
+      appMeta: APP_META_DEFAULT,
     };
     this.editorRef = React.createRef();
     this.highlightRef = React.createRef();
     this.gutterRef = React.createRef();
     this.fileRef = React.createRef();
     this.beautifyMenuRef = React.createRef();
+    this.settingsMenuRef = React.createRef();
     this.treeScrollRef = React.createRef();
     this.dropRef = React.createRef();
     this.activeMatchRef = React.createRef();
@@ -191,10 +213,12 @@ class Component extends DCLogic {
 
   componentDidMount() {
     window.addEventListener('keydown', this._onKey, true);
+    this.loadAppMeta();
     this._onDocClick = (e) => {
-      const wrap = this.beautifyMenuRef.current;
-      if (!wrap) return;
-      if (!wrap.contains(e.target)) this.setState({ showBeautifyMenu: false });
+      const beautifyWrap = this.beautifyMenuRef.current;
+      if (beautifyWrap && !beautifyWrap.contains(e.target) && this.state.showBeautifyMenu) this.setState({ showBeautifyMenu: false });
+      const settingsWrap = this.settingsMenuRef.current;
+      if (settingsWrap && !settingsWrap.contains(e.target) && this.state.showSettings) this.setState({ showSettings: false });
     };
     document.addEventListener('pointerdown', this._onDocClick, true);
     this._onResize = () => { const b = this.treeScrollRef.current; if (b && b.clientHeight) this.setState({ viewportH: b.clientHeight }); };
@@ -300,6 +324,17 @@ class Component extends DCLogic {
     this._persistTimer = setTimeout(() => this.persistNow(), 220);
   }
 
+  loadAppMeta() {
+    if (typeof fetch !== 'function') return;
+    fetch('version.json', { cache: 'no-store' })
+      .then((resp) => {
+        if (!resp.ok) throw new Error('meta-fetch-failed');
+        return resp.json();
+      })
+      .then((meta) => this.setState({ appMeta: sanitizeAppMeta(meta) }))
+      .catch(() => {});
+  }
+
   handleKey(e) {
     const k = e.key, mod = e.metaKey || e.ctrlKey;
     const tag = (e.target && e.target.tagName) || '';
@@ -320,8 +355,10 @@ class Component extends DCLogic {
     }
     if (!typing) {
       if (k === 'Escape' && this.state.fullscreenPanel) this.setState({ fullscreenPanel: null });
-      else if (k === '?') this.setState(s => ({ showHelp: !s.showHelp }));
+      else if (k === '?') this.setState(s => ({ showHelp: !s.showHelp, showAbout: false, showSettings: false }));
       else if (k === 'Escape' && this.state.showBeautifyMenu) this.setState({ showBeautifyMenu: false });
+      else if (k === 'Escape' && this.state.showSettings) this.setState({ showSettings: false });
+      else if (k === 'Escape' && this.state.showAbout) this.setState({ showAbout: false });
       else if (k === 'Escape' && this.state.showHelp) this.setState({ showHelp: false });
     }
   }
@@ -1620,6 +1657,12 @@ class Component extends DCLogic {
     };
 
     const seg = (active) => ({ height: '26px', padding: '0 11px', border: 'none', borderRadius: '7px', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, background: active ? tok.panel : 'transparent', color: active ? tok.accent : tok.textDim, boxShadow: active ? '0 1px 3px rgba(0,0,0,.12)' : 'none', transition: 'all .12s' });
+    const segIcon = (active) => Object.assign({}, seg(active), { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' });
+    const styleTone = {
+      aurora: theme === 'dark' ? '#a89cff' : '#6d5efc',
+      slate: theme === 'dark' ? '#58d5ca' : '#0e9f96',
+      paper: theme === 'dark' ? '#f2b47a' : '#d9713b',
+    };
     const segFlat = (active) => ({ height: '26px', padding: '0 11px', border: 'none', borderRadius: '6px', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, background: active ? tok.accent : 'transparent', color: active ? tok.accentContrast : tok.textDim, transition: 'all .12s' });
     const btnStyle = { display: 'inline-flex', alignItems: 'center', gap: '6px', height: '30px', padding: '0 11px', borderRadius: tok.radiusSm, border: '1px solid ' + tok.border, background: tok.elev, color: tok.text, font: '500 12.5px/1 ' + tok.fontUi, cursor: 'pointer', whiteSpace: 'nowrap' };
     const btnHover = 'background:' + tok.accentWeak + ';border-color:' + tok.accent + ';color:' + tok.text;
@@ -1811,18 +1854,35 @@ class Component extends DCLogic {
     const shortcutsHint = applePlatform
       ? 'Using Command shortcuts for Apple devices. Your document, theme and layout are saved automatically.'
       : 'Using Ctrl shortcuts for Windows and Linux. Your document, theme and layout are saved automatically.';
+    const appMeta = sanitizeAppMeta(S.appMeta);
 
     return {
       themeVars,
       isFormat: S.mode === 'format', isDiff: S.mode === 'diff',
       tabFormatStyle: seg(S.mode === 'format'), tabDiffStyle: seg(S.mode === 'diff'),
       onFormat: () => this.setState({ mode: 'format' }), onDiff: () => this.setState({ mode: 'diff' }),
-      dirAuroraStyle: seg(dir === 'aurora'), dirSlateStyle: seg(dir === 'slate'), dirPaperStyle: seg(dir === 'paper'),
+      dirAuroraStyle: Object.assign({}, seg(dir === 'aurora'), { color: styleTone.aurora }),
+      dirSlateStyle: Object.assign({}, seg(dir === 'slate'), { color: styleTone.slate }),
+      dirPaperStyle: Object.assign({}, seg(dir === 'paper'), { color: styleTone.paper }),
       onDirAurora: () => this.setState({ direction: 'aurora' }), onDirSlate: () => this.setState({ direction: 'slate' }), onDirPaper: () => this.setState({ direction: 'paper' }),
       onThemeToggle: () => this.setState({ theme: theme === 'dark' ? 'light' : 'dark' }),
+      onThemeLight: () => this.setState({ theme: 'light' }),
+      onThemeDark: () => this.setState({ theme: 'dark' }),
+      themeLightStyle: segIcon(theme === 'light'),
+      themeDarkStyle: segIcon(theme === 'dark'),
       themeToggleTitle: theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode',
       themeIcon: theme === 'dark' ? (window.PAW_ICONS ? window.PAW_ICONS.moon() : null) : (window.PAW_ICONS ? window.PAW_ICONS.sun() : null),
       themeLabel: theme === 'dark' ? 'Dark' : 'Light', themeDotBg: theme === 'dark' ? tok.text : 'transparent',
+      settingsMenuRef: this.settingsMenuRef,
+      showSettings: S.showSettings,
+      onToggleSettings: () => this.setState(s => ({ showSettings: !s.showSettings })),
+      showAbout: S.showAbout,
+      onToggleAbout: () => this.setState(s => ({ showAbout: !s.showAbout, showHelp: false, showSettings: false })),
+      aboutAppName: appMeta.appName,
+      aboutTagline: appMeta.tagline,
+      aboutByline: appMeta.byline,
+      aboutVersion: appMeta.version,
+      aboutCopyright: appMeta.copyright,
       formatGridClass, sourcePanelClass, explorerPanelClass,
       sourceFullscreenLabel: S.fullscreenPanel === 'source' ? 'Exit fullscreen' : 'Fullscreen',
       explorerFullscreenLabel: S.fullscreenPanel === 'explorer' ? 'Exit fullscreen' : 'Fullscreen',
@@ -1870,7 +1930,7 @@ class Component extends DCLogic {
 
       onTreeScroll: (e) => { const top = e.target.scrollTop; if (this._raf) return; this._raf = requestAnimationFrame(() => { this._raf = null; this.setState({ scrollTop: top }); }); },
       onShare: () => this.doShare(), shareLabel: S.shareMsg || 'Share link',
-      onToggleHelp: () => this.setState(s => ({ showHelp: !s.showHelp })), showHelp: S.showHelp, stop: (e) => e.stopPropagation(),
+      onToggleHelp: () => this.setState(s => ({ showHelp: !s.showHelp, showAbout: false, showSettings: false })), showHelp: S.showHelp, stop: (e) => e.stopPropagation(),
 
       statusBarStyle: { display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', borderTop: '1px solid ' + tok.border, background: hasError ? tok.sem.errW : (parsed.ok ? tok.sem.okW : tok.panel2) },
       statusText, statusColor, statusDot, statusDotHalo, hasError, errorLine,
@@ -1908,6 +1968,7 @@ class Component extends DCLogic {
       // Icon React elements (from js/icons.js via window.PAW_ICONS)
       ...(window.PAW_ICONS ? (function(ic) { return {
         iconSun: ic.sun(),
+        iconMoon: ic.moon(),
         iconWand: ic.wand(),
         iconMinify: ic.minify(),
         iconSortKeys: ic.sortKeys(),
@@ -1926,6 +1987,8 @@ class Component extends DCLogic {
         iconPencil: ic.pencil(),
         iconFilter: ic.filter(),
         iconDiffFile: ic.diffFile(),
+        iconSettings: ic.settings(),
+        iconInfo: ic.info(),
       }; })(window.PAW_ICONS) : {}),
     };
   }

@@ -239,5 +239,24 @@
         '<path d="M9 5h2a1 1 0 011 1v6"/>'
       );
     },
+
+    // Settings / gear
+    settings: function () {
+      return ic(
+        '<circle cx="7" cy="7" r="1.8"/>' +
+        '<path d="M7 1.7v1.4M7 10.9v1.4M1.7 7h1.4M10.9 7h1.4M2.9 2.9l1 1M10.1 10.1l1 1M11.1 2.9l-1 1M3.9 10.1l-1 1"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
+
+    // About / info
+    info: function () {
+      return ic(
+        '<circle cx="7" cy="7" r="5"/>' +
+        '<line x1="7" y1="6" x2="7" y2="9.8"/>' +
+        '<circle cx="7" cy="4.1" r=".55" fill="currentColor" stroke="none"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
   };
 })();
