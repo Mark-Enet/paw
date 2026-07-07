@@ -72,20 +72,31 @@
 
     <div class="rf-header-spacer" style="flex:1"></div>
 
-    <div class="rf-style-group" style="display:flex;align-items:center;gap:6px">
-      <span style="font:600 10px/1 var(--font-ui);color:var(--text-faint,#9096ac);letter-spacing:.05em;margin-right:2px">STYLE</span>
-      <div class="rf-style-seg" style="display:flex;padding:3px;background:var(--panel-2,#eef0f7);border-radius:9px;gap:2px">
-        <button style="{{ dirAuroraStyle }}" onclick="{{ onDirAurora }}">Aurora</button>
-        <button style="{{ dirSlateStyle }}" onclick="{{ onDirSlate }}">Slate</button>
-        <button style="{{ dirPaperStyle }}" onclick="{{ onDirPaper }}">Paper</button>
-      </div>
+    <div class="rf-settings-menu" ref="{{ settingsMenuRef }}">
+      <button title="Settings" aria-label="Settings" onclick="{{ onToggleSettings }}" style="display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);color:var(--text,#1b1e2b);font:600 12px/1 var(--font-ui);cursor:pointer" style-hover="background:var(--panel-2,#eef0f7)">{{ iconSettings }}Settings</button>
+      <sc-if value="{{ showSettings }}" hint-placeholder-val="{{ false }}">
+        <div class="rf-settings-pop" onclick="{{ stop }}">
+          <div class="rf-settings-row">
+            <span>Style</span>
+            <div class="rf-style-seg" style="display:flex;padding:3px;background:var(--panel-2,#eef0f7);border-radius:9px;gap:2px">
+              <button style="{{ dirAuroraStyle }}" onclick="{{ onDirAurora }}">Aurora</button>
+              <button style="{{ dirSlateStyle }}" onclick="{{ onDirSlate }}">Slate</button>
+              <button style="{{ dirPaperStyle }}" onclick="{{ onDirPaper }}">Paper</button>
+            </div>
+          </div>
+          <div class="rf-settings-row">
+            <span>Theme</span>
+            <div class="rf-style-seg" style="display:flex;padding:3px;background:var(--panel-2,#eef0f7);border-radius:9px;gap:2px">
+              <button style="{{ themeLightStyle }}" onclick="{{ onThemeLight }}">{{ iconSun }}Light</button>
+              <button style="{{ themeDarkStyle }}" onclick="{{ onThemeDark }}">{{ iconMoon }}Dark</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
     </div>
 
+    <button title="About PAW" onclick="{{ onToggleAbout }}" style="height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 12px;border-radius:8px;border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);color:var(--text,#1b1e2b);font:600 12px/1 var(--font-ui);cursor:pointer" style-hover="background:var(--panel-2,#eef0f7)">{{ iconInfo }}About</button>
     <button title="Keyboard shortcuts (?)" onclick="{{ onToggleHelp }}" style="width:32px;height:32px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);color:var(--text-dim,#565d73);font:700 15px/1 var(--font-ui);cursor:pointer" style-hover="background:var(--panel-2,#eef0f7)">?</button>
-    <button title="{{ themeToggleTitle }}" aria-label="{{ themeToggleTitle }}" style="display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);color:var(--text,#1b1e2b);font:500 12.5px/1 var(--font-ui);cursor:pointer" style-hover="background:var(--panel-2,#eef0f7)" onclick="{{ onThemeToggle }}">
-      {{ themeIcon }}
-      {{ themeLabel }}
-    </button>
   </header>
 
   <!-- ===== FORMAT MODE ===== -->
@@ -224,6 +235,32 @@
       <textarea class="rf-ta rf-scroll" spellcheck="false" placeholder="Changed / version B…" value="{{ diffB }}" onchange="{{ onDiffBChange }}" style="width:100%;height:100%;resize:none;border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);background:var(--panel,#fff);color:var(--text,#1b1e2b);font:400 12.5px/19px var(--font-mono);padding:12px;outline:none"></textarea>
     </div>
     <div class="rf-scroll" style="flex:1;min-height:0;overflow:auto;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px)">{{ diffEl }}</div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ showAbout }}" hint-placeholder-val="{{ false }}">
+  <div onclick="{{ onToggleAbout }}" style="position:fixed;inset:0;z-index:60;background:rgba(8,10,18,.5);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px)">
+    <div onclick="{{ stop }}" style="width:540px;max-width:92%;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);box-shadow:var(--shadow,none);overflow:hidden;animation:rf-pop .14s ease">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8)">
+        <span style="font:700 14px/1 var(--font-ui);color:var(--text,#1b1e2b)">About</span>
+        <button onclick="{{ onToggleAbout }}" style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);color:var(--text-dim,#565d73);cursor:pointer;font:600 13px/1 var(--font-ui)">✕</button>
+      </div>
+      <div style="padding:18px 20px 20px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:center;padding:2px 0">
+          <svg xmlns="http://www.w3.org/2000/svg" width="98" height="98" viewBox="0 0 82.811966 82.994423" fill="none" aria-hidden="true">
+            <g transform="translate(-230.19605,-161.63709)">
+              <rect x="238.17386" y="171.38994" width="65.919464" height="65.696548" ry="2.6732275" fill="var(--accent-contrast,#fff)"/>
+              <path d="m 250.3359,161.63708 c -7.29551,0 -13.1687,7.07751 -13.1687,15.86932 v 15.49001 c 0,4.3356 -7.10938,5.65781 -6.96909,10.13788 0.15019,4.79637 6.96909,6.36597 6.96909,10.3203 v 15.30708 c 0,8.79181 5.87319,15.86983 13.1687,15.86983 h 7.72201 27.08879 7.72149 c 7.29551,0 13.16871,-7.07802 13.16871,-15.86983 v -15.30708 c 0,-3.95433 6.81889,-5.52393 6.96908,-10.3203 0.14029,-4.48007 -6.96908,-5.80228 -6.96908,-10.13788 V 177.5064 c 0,-8.79181 -5.8732,-15.86932 -13.16871,-15.86932 h -7.72149 -27.08879 z m 9.94358,11.15178 a 11.316081,8.4564277 79.591583 0 1 9.34568,9.55342 11.316081,8.4564277 79.591583 0 1 -6.13192,12.78681 11.316081,8.4564277 79.591583 0 1 -10.44587,-9.42991 11.316081,8.4564277 79.591583 0 1 6.13192,-12.7863 11.316081,8.4564277 79.591583 0 1 1.10019,-0.12402 z m 22.64513,0 a 8.4564278,11.316081 10.408416 0 1 1.10071,0.12402 8.4564278,11.316081 10.408416 0 1 6.13141,12.7863 8.4564278,11.316081 10.408416 0 1 -10.44536,9.42991 8.4564278,11.316081 10.408416 0 1 -6.13192,-12.78681 8.4564278,11.316081 10.408416 0 1 9.34516,-9.55342 z m -36.25825,17.51779 a 9.9445881,7.3071348 68.545142 0 1 7.82329,6.30918 9.9445881,7.3071348 68.545142 0 1 -2.42207,12.361 9.9445881,7.3071348 68.545142 0 1 -10.63449,-5.72833 9.9445881,7.3071348 68.545142 0 1 2.42207,-12.36101 9.9445881,7.3071348 68.545142 0 1 2.8112,-0.58084 z m 49.87189,0 a 7.3071347,9.9445881 21.454859 0 1 2.81068,0.58084 7.3071347,9.9445881 21.454859 0 1 2.42259,12.36101 7.3071347,9.9445881 21.454859 0 1 -10.63501,5.72833 7.3071347,9.9445881 21.454859 0 1 -2.42207,-12.361 7.3071347,9.9445881 21.454859 0 1 7.82381,-6.30918 z m -24.93026,7.89719 c 2.97661,0.0133 3.66794,0.61299 5.1232,1.66502 3.35552,2.42576 4.28014,7.04197 7.34994,10.01386 2.67776,2.59233 8.65584,5.49946 9.49296,12.15946 0.75829,6.03292 -4.92145,11.48041 -12.40699,11.43962 -3.53364,-0.0193 -6.214,-2.16059 -9.55911,-2.1606 -3.34513,0 -6.02496,2.1413 -9.55859,2.1606 -7.48555,0.0408 -13.16528,-5.40668 -12.407,-11.43962 0.83712,-6.66012 6.81573,-9.56713 9.49348,-12.15946 3.0698,-2.97189 3.99442,-7.5881 7.34994,-10.01386 1.45525,-1.05203 2.14658,-1.65172 5.1232,-1.66502 z" fill="var(--accent,#6d5efc)"/>
+            </g>
+          </svg>
+        </div>
+        <div style="font:800 21px/1 var(--font-ui);letter-spacing:-.02em;color:var(--text,#1b1e2b)">{{ aboutAppName }}</div>
+        <div style="font:600 11px/1.2 var(--font-ui);letter-spacing:.08em;color:var(--text-faint,#9096ac)">{{ aboutTagline }}</div>
+        <div style="font:600 12px/1 var(--font-ui);color:var(--text-dim,#565d73)">{{ aboutByline }}</div>
+        <div style="margin-top:2px;padding:5px 10px;border-radius:999px;border:1px solid var(--border,#e3e6ef);background:var(--panel-2,#eef0f7);font:700 11px/1 var(--font-mono);color:var(--accent,#6d5efc)">Version {{ aboutVersion }}</div>
+        <div style="margin-top:4px;font:500 11px/1.45 var(--font-ui);color:var(--text-faint,#9096ac)">{{ aboutCopyright }}</div>
+      </div>
+    </div>
   </div>
   </sc-if>
 

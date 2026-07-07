@@ -13,6 +13,8 @@ convert JSON ↔ XML, query with JSONPath / XPath, and diff two documents.
   The app works fully offline once loaded from static files.
 - To update the app, commit the changed static files (typically `index.html`, `css/main.css`,
   `js/app.js`, `js/dc-runtime.js`, `js/icons.js`, and any assets under `fonts/`).
+- App metadata shown in the About dialog lives in `version.json`. Update the `version`
+  field there when preparing a release to `main`.
 
 ## Tests
 
