@@ -927,8 +927,8 @@ class Component extends DCLogic {
     return '<' + tagName + attrs.join('') + '>' + text + body.join('') + '</' + tagName + '>';
   }
 
-  explorerPayloadText(parsed, node, term, matchPaths, keepPaths) {
-    const hasFilter = !!(term || (matchPaths && matchPaths.size) || (keepPaths && keepPaths.size));
+  explorerPayloadText(parsed, node, term, matchPaths, keepPaths, forceFilter) {
+    const hasFilter = !!forceFilter || !!(term || (matchPaths && matchPaths.size) || (keepPaths && keepPaths.size));
     if (!parsed || !parsed.ok || !node || !hasFilter) return parsed && parsed.empty ? '' : (this.state.input || '');
     const sourceStyle = this.state.input.indexOf('\n') >= 0 ? 'beautify' : 'minify';
     const keep = keepPaths || this.keepSet(node, term);
@@ -2154,10 +2154,18 @@ class Component extends DCLogic {
     }
     const filterMatchPaths = searchFilterActive ? searchFilterMatchPaths : queryMatchPaths;
     const filterKeepPaths = searchFilterActive ? searchKeepPaths : queryKeepPaths;
+    const queryFilterActive = S.explorerMode === 'query' && !!query && queryStatOk;
+    const queryPayloadText = queryFilterActive
+      ? this.explorerPayloadText(parsed, node, '', queryMatchPaths, queryKeepPaths, true)
+      : '';
+    const explorerCopyPayloadText = queryFilterActive
+      ? queryPayloadText
+      : (searchFilterActive ? explorerPayloadText : (parsed.empty ? '' : S.input));
     const activePath = (S.explorerMode === 'query' && queryMatchPaths.size)
       ? Array.from(queryMatchPaths)[0]
       : ((S.view === 'raw' || activeIndex < 0) ? null : matches[activeIndex]);
-    const ctx = { tok, term: searchFilterActive ? term : '', activePath, filter: searchFilterActive || queryKeepPaths.size > 0, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 };
+    const searchTerm = S.explorerMode === 'search' ? term : '';
+    const ctx = { tok, term: searchTerm, activePath, filter: searchFilterActive || queryKeepPaths.size > 0, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 };
     const matchLabel = activePool.length ? (activeIndex + 1) + '/' + activePool.length : '0/0';
 
     if (S.view === 'raw') {
@@ -2165,8 +2173,8 @@ class Component extends DCLogic {
       this._activeRowIndex = -1;
       this._activeRowHeight = ROW_H;
       const rawSearchActive = S.explorerMode === 'search' && !!term && rawMatches.length > 0;
-      const rawBase = (S.explorerMode === 'query' && queryKeepPaths.size)
-        ? this.explorerPayloadText(parsed, node, '', queryMatchPaths, queryKeepPaths)
+      const rawBase = queryFilterActive
+        ? queryPayloadText
         : ((S.explorerMode === 'search' && S.searchMode === 'filter' && term)
           ? explorerPayloadText
           : src);
@@ -2187,8 +2195,8 @@ class Component extends DCLogic {
       const tableCacheKey = S.docInput + '|' + tableMode + '|' + tableSourcePath + '|' + term + '|' + S.searchMode + '|' + (S.explorerMode === 'query' ? query : '');
       if (!this._tableCache || this._tableCache.cacheKey !== tableCacheKey) {
         const res = tableMode === 'record'
-          ? this.recordTableRows(tableSourceNode, parsed, { term: searchFilterActive ? term : '', filter, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 })
-          : this.tableRows(tableSourceNode, parsed, { term: searchFilterActive ? term : '', filter, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 });
+          ? this.recordTableRows(tableSourceNode, parsed, { term: searchTerm, filter, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 })
+          : this.tableRows(tableSourceNode, parsed, { term: searchTerm, filter, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 });
         this._tableCache = { cacheKey: tableCacheKey, mode: tableMode, sourcePath: tableSourcePath, res };
       }
       const table = this._tableCache.res;
@@ -2365,8 +2373,8 @@ class Component extends DCLogic {
       explorerFullscreenIcon: S.fullscreenPanel === 'explorer' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
       onSourceFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'source' ? null : 'source' })),
       onExplorerFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'explorer' ? null : 'explorer' })),
-      onCopyExplorer: () => this.copy(explorerPayloadText, '__explorer'),
-      explorerCopyTitle: filterMatchPaths.size ? 'Copy filtered payload' : 'Copy payload',
+      onCopyExplorer: () => this.copy(explorerCopyPayloadText, '__explorer'),
+      explorerCopyTitle: (searchFilterActive || queryFilterActive) ? 'Copy filtered payload' : 'Copy payload',
       explorerCopyStyle: Object.assign({}, btnStyle, { width: '30px', minWidth: '30px', padding: '0', justifyContent: 'center' }),
       explorerActionsStyle: { display: 'inline-flex', alignItems: 'center', gap: '7px', marginLeft: 'auto', flex: '0 0 auto', flexWrap: 'nowrap' },
       tableModePathStyle: seg(tableMode === 'path'),
