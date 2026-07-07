@@ -1602,6 +1602,36 @@ class Component extends DCLogic {
     return node.textContent != null ? node.textContent : '';
   }
 
+  xmlNodeModelPath(node) {
+    if (!node) return '';
+    if (node.nodeType === 2) {
+      const base = this.xmlNodeModelPath(node.ownerElement);
+      return base ? (base + '/@' + node.nodeName) : '';
+    }
+    if (node.nodeType === 3) {
+      const base = this.xmlNodeModelPath(node.parentElement);
+      return base ? (base + '/#text') : '';
+    }
+    if (node.nodeType !== 1) return '';
+    const segs = [];
+    let cur = node;
+    while (cur && cur.nodeType === 1) {
+      const parent = cur.parentElement;
+      if (parent) {
+        const sibs = Array.from(parent.children || []).filter((c) => c.nodeName === cur.nodeName);
+        if (sibs.length > 1) {
+          segs.unshift(cur.nodeName + '[' + (sibs.indexOf(cur) + 1) + ']');
+        } else {
+          segs.unshift(cur.nodeName);
+        }
+      } else {
+        segs.unshift(cur.nodeName);
+      }
+      cur = parent;
+    }
+    return '/' + segs.join('/');
+  }
+
   runXPath(doc, path) {
     const p = path.trim();
     if (!p) return { ok: true, results: [] };
@@ -1612,14 +1642,14 @@ class Component extends DCLogic {
       else if (xr.resultType === XPathResult.NUMBER_TYPE) results.push({ path: p, val: xr.numberValue });
       else if (xr.resultType === XPathResult.BOOLEAN_TYPE) results.push({ path: p, val: xr.booleanValue });
       else if (xr.resultType === XPathResult.ANY_UNORDERED_NODE_TYPE || xr.resultType === XPathResult.FIRST_ORDERED_NODE_TYPE) {
-        if (xr.singleNodeValue) results.push({ path: xr.singleNodeValue.nodeName, val: this.xpathNodeValue(xr.singleNodeValue) });
+        if (xr.singleNodeValue) results.push({ path: xr.singleNodeValue.nodeName, val: this.xpathNodeValue(xr.singleNodeValue), node: xr.singleNodeValue, modelPath: this.xmlNodeModelPath(xr.singleNodeValue) });
       } else if (xr.resultType === XPathResult.UNORDERED_NODE_ITERATOR_TYPE || xr.resultType === XPathResult.ORDERED_NODE_ITERATOR_TYPE) {
         let node;
-        while ((node = xr.iterateNext())) results.push({ path: node.nodeName, val: this.xpathNodeValue(node) });
+        while ((node = xr.iterateNext())) results.push({ path: node.nodeName, val: this.xpathNodeValue(node), node, modelPath: this.xmlNodeModelPath(node) });
       } else {
         for (let i = 0; i < xr.snapshotLength; i++) {
           const node = xr.snapshotItem(i);
-          results.push({ path: node.nodeName, val: this.xpathNodeValue(node) });
+          results.push({ path: node.nodeName, val: this.xpathNodeValue(node), node, modelPath: this.xmlNodeModelPath(node) });
         }
       }
       return { ok: true, results };
@@ -2094,6 +2124,29 @@ class Component extends DCLogic {
             return selfMatched || childMatched;
           };
           walkQuery(node);
+          queryMatchPaths = matches;
+          queryKeepPaths = keep;
+        } else if (isXml) {
+          const keep = new Set();
+          const matches = new Set();
+          const queryTargets = new Set(queryResults.map((r) => String((r && r.modelPath) || '').trim()).filter(Boolean));
+          const matchedNodes = new Set(queryResults.map((r) => r && r.node).filter(Boolean));
+          const addSubtree = (n) => {
+            if (!n) return;
+            keep.add(n.path);
+            if (n.children) n.children.forEach(addSubtree);
+          };
+          const walkXml = (n) => {
+            if (!n) return false;
+            const selfMatched = queryTargets.has(n.path) || !!(n.el && matchedNodes.has(n.el));
+            let childMatched = false;
+            if (n.children) n.children.forEach((child) => { if (walkXml(child)) childMatched = true; });
+            if (selfMatched) matches.add(n.path);
+            if (selfMatched) addSubtree(n);
+            if (selfMatched || childMatched) keep.add(n.path);
+            return selfMatched || childMatched;
+          };
+          walkXml(node);
           queryMatchPaths = matches;
           queryKeepPaths = keep;
         }
