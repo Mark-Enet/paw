@@ -954,6 +954,38 @@
   .rf-settings-row .rf-style-seg button {
     flex: 1 1 0;
   }
+  .rf-settings-remember-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .rf-settings-remember-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: var(--panel-2, #eef0f7);
+  }
+  .rf-settings-remember-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .rf-settings-remember-copy strong {
+    font: 600 11px/1 var(--font-ui);
+    color: var(--text, #1b1e2b);
+  }
+  .rf-settings-remember-copy small {
+    font: 500 10px/1.35 var(--font-ui);
+    color: var(--text-faint, #9096ac);
+  }
+  .rf-settings-note {
+    font: 500 10px/1.4 var(--font-ui);
+    color: var(--text-faint, #9096ac);
+  }
   @media (max-width: 920px) {
     .rf-explorer-toolbar { align-items:stretch; }
     .rf-explorer-input-wrap,

@@ -91,6 +91,40 @@
               <button style="{{ themeDarkStyle }}" onclick="{{ onThemeDark }}">{{ iconMoon }}Dark</button>
             </div>
           </div>
+          <div class="rf-settings-row rf-settings-remember">
+            <span>Remember</span>
+            <div class="rf-settings-remember-list">
+              <div class="rf-settings-remember-item">
+                <div class="rf-settings-remember-copy">
+                  <strong>Content</strong>
+                  <small>Source input and diff documents</small>
+                </div>
+                <button style="{{ rememberContentStyle }}" onclick="{{ onRememberContent }}">{{ rememberContentLabel }}</button>
+              </div>
+              <div class="rf-settings-remember-item">
+                <div class="rf-settings-remember-copy">
+                  <strong>Workspace</strong>
+                  <small>Format/Diff mode and fullscreen state</small>
+                </div>
+                <button style="{{ rememberWorkspaceStyle }}" onclick="{{ onRememberWorkspace }}">{{ rememberWorkspaceLabel }}</button>
+              </div>
+              <div class="rf-settings-remember-item">
+                <div class="rf-settings-remember-copy">
+                  <strong>Explorer</strong>
+                  <small>Tree/Table/Raw and table source/mode</small>
+                </div>
+                <button style="{{ rememberExplorerStyle }}" onclick="{{ onRememberExplorer }}">{{ rememberExplorerLabel }}</button>
+              </div>
+              <div class="rf-settings-remember-item">
+                <div class="rf-settings-remember-copy">
+                  <strong>Find / Query</strong>
+                  <small>Search/query modes and entered patterns</small>
+                </div>
+                <button style="{{ rememberFindStyle }}" onclick="{{ onRememberFind }}">{{ rememberFindLabel }}</button>
+              </div>
+            </div>
+            <div class="rf-settings-note">Changes apply on next reload. Style, Theme, and Remember preferences are always saved.</div>
+          </div>
         </div>
       </sc-if>
     </div>
