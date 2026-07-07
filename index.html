@@ -207,8 +207,10 @@
           <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onExpandAll }}">{{ iconExpand }}Expand all</button>
           <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCollapseAll }}">{{ iconCollapse }}Collapse all</button>
         </sc-if>
-        <button title="{{ explorerCopyTitle }}" aria-label="{{ explorerCopyTitle }}" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCopyExplorer }}">{{ iconCopy }}{{ explorerCopyLabel }}</button>
-        <button title="{{ explorerFullscreenLabel }}" aria-label="{{ explorerFullscreenLabel }}" style="{{ fsBtnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onExplorerFullscreen }}">{{ explorerFullscreenIcon }}</button>
+        <div style="{{ explorerActionsStyle }}">
+          <button title="{{ explorerCopyTitle }}" aria-label="{{ explorerCopyTitle }}" style="{{ explorerCopyStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCopyExplorer }}">{{ iconCopy }}</button>
+          <button title="{{ explorerFullscreenLabel }}" aria-label="{{ explorerFullscreenLabel }}" style="{{ fsBtnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onExplorerFullscreen }}">{{ explorerFullscreenIcon }}</button>
+        </div>
       </div>
 
       <div class="rf-explorer-toolbar">
