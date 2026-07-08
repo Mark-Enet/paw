@@ -316,6 +316,7 @@ class Component extends DCLogic {
     if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
       this.schedulePersist();
     }
+    this.syncEditorLayers();
   }
 
   persistNow() {
@@ -1080,6 +1081,18 @@ class Component extends DCLogic {
     const walk = n => { if (n.kind !== 'leaf') { out.push(n.path); n.children.forEach(walk); } };
     if (node) walk(node);
     return out;
+  }
+
+  syncEditorLayers(sourceEl) {
+    const ta = sourceEl || this.editorRef.current;
+    if (!ta) return;
+    const top = ta.scrollTop;
+    const left = ta.scrollLeft;
+    if (this.highlightRef.current) {
+      if (Math.abs(this.highlightRef.current.scrollTop - top) > 1) this.highlightRef.current.scrollTop = top;
+      if (Math.abs(this.highlightRef.current.scrollLeft - left) > 1) this.highlightRef.current.scrollLeft = left;
+    }
+    if (this.gutterRef.current && Math.abs(this.gutterRef.current.scrollTop - top) > 1) this.gutterRef.current.scrollTop = top;
   }
 
   async copy(text, key) {
@@ -2294,7 +2307,10 @@ class Component extends DCLogic {
     ] : [h('span', { key: 'e', style: { font: '500 12px/1 ' + tok.fontUi, color: tok.textFaint } }, 'Stats appear here once the document is valid.')];
 
     // editor highlight + gutter
-    const hlEditor = S.input.length <= 30000;
+    const highlightLimit = parsed.format === 'xml' ? 1200000 : 600000;
+    // In wrap mode, span-token overlay and textarea can wrap at different points on long lines.
+    // Disable overlay highlighting there to keep click/caret mapping exact.
+    const hlEditor = !S.softWrap && S.input.length <= highlightLimit;
     const highlightEl = hlEditor ? this.highlight(S.input, parsed.format, tok) : null;
     const tabSize = (S.indent === '4' || S.indent === 'tab') ? 4 : 2;
     const textWhiteSpace = S.softWrap ? 'pre-wrap' : 'pre';
@@ -2385,8 +2401,15 @@ class Component extends DCLogic {
 
       btnStyle, fsBtnStyle, btnHover, btnGhost, navBtnStyle,
       formatBadge: parsed.format === 'empty' ? 'EMPTY' : parsed.format.toUpperCase(), badgeStyle,
-      input: S.input, onInput: (e) => { const val = e.target.value; if (val.length <= 30000) this.setState({ input: val }); clearTimeout(this._docTimer); this._docTimer = setTimeout(() => this.setState({ input: val, docInput: val }), 160); },
-      onEditorScroll: (e) => { const t = e.target; if (this.highlightRef.current) { this.highlightRef.current.scrollTop = t.scrollTop; this.highlightRef.current.scrollLeft = t.scrollLeft; } if (this.gutterRef.current) this.gutterRef.current.scrollTop = t.scrollTop; },
+      input: S.input, onInput: (e) => {
+        const val = e.target.value;
+        // Keep the controlled textarea in sync on every keystroke so caret position stays stable.
+        this.setState({ input: val });
+        clearTimeout(this._docTimer);
+        // Parse/explorer work remains debounced via docInput for large documents.
+        this._docTimer = setTimeout(() => this.setState(s => (s.docInput === val ? null : { docInput: val })), 160);
+      },
+      onEditorScroll: (e) => this.syncEditorLayers(e.target),
       editorRef: this.editorRef, highlightRef: this.highlightRef, gutterRef: this.gutterRef, fileRef: this.fileRef, dropRef: this.dropRef, treeScrollRef: this.treeScrollRef,
       highlightEl, highlightStyle, gutterText, taStyle,
       gutterWrapStyle: { flex: '0 0 auto', width: showLN ? '52px' : '0', overflow: 'hidden', borderRight: showLN ? '1px solid ' + tok.border : 'none', background: tok.panel2, display: showLN ? 'block' : 'none' },
