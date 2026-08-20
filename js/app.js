@@ -73,11 +73,12 @@ const INDEXED_SEG_RE = /\[\d+\]/;
 const TABLE_JSON_MAX_DEPTH = 2;
 const TABLE_XML_MIN_SUITABLE_ROWS = 1;
 const MAX_PERSIST = 500000;
+const SOURCE_NAME_MAX_LEN = 160;
 const APP_META_DEFAULT = Object.freeze({
   appName: 'PAW',
   tagline: 'PAYLOAD ANALYSIS WINGMAN',
   byline: 'by Widgemo',
-  version: '0.1.0',
+  version: '0.3.2',
   copyright: 'Copyright (c) 2026 Widgemo. All rights reserved.'
 });
 const REMEMBER_DEFAULT = Object.freeze({
@@ -168,6 +169,12 @@ function loadPersisted() {
   if (data.fullscreenPanel !== 'source' && data.fullscreenPanel !== 'explorer') delete data.fullscreenPanel;
   if (data.tableMode !== 'path' && data.tableMode !== 'record') delete data.tableMode;
   if (typeof data.tableSourcePath !== 'string') delete data.tableSourcePath;
+  if (typeof data.sourceName !== 'string') delete data.sourceName;
+  else {
+    data.sourceName = data.sourceName.trim().slice(0, SOURCE_NAME_MAX_LEN);
+    if (!data.sourceName) delete data.sourceName;
+  }
+  if (typeof data.input === 'string' && !data.input.trim()) delete data.sourceName;
   data.rememberPrefs = sanitizeRememberPrefs(data.rememberPrefs);
   return data;
 }
@@ -182,6 +189,7 @@ class Component extends DCLogic {
       direction: P.direction || props.direction || 'aurora',
       input: P.input != null ? P.input : '',
       docInput: P.input != null ? P.input : '',
+      sourceName: P.sourceName || '',
       softWrap: !!P.softWrap,
       indent: P.indent || '2',
       showBeautifyMenu: false,
@@ -313,7 +321,7 @@ class Component extends DCLogic {
       prevState.rememberPrefs.explorer !== this.state.rememberPrefs.explorer ||
       prevState.rememberPrefs.find !== this.state.rememberPrefs.find
     );
-    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
+    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.sourceName !== this.state.sourceName || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
       this.schedulePersist();
     }
     this.syncEditorLayers();
@@ -349,6 +357,7 @@ class Component extends DCLogic {
       data.diffA = S.diffA;
       data.diffB = S.diffB;
       data.input = S.input;
+      if (typeof S.sourceName === 'string' && S.sourceName.trim()) data.sourceName = S.sourceName.trim().slice(0, SOURCE_NAME_MAX_LEN);
     }
 
     if (typeof data.input === 'string' && data.input.length > MAX_PERSIST) delete data.input;
@@ -364,8 +373,8 @@ class Component extends DCLogic {
     const attempts = [
       data,
       stripKeys(data, ['diffA', 'diffB']),
-      stripKeys(data, ['input', 'diffA', 'diffB']),
-      stripKeys(data, ['input', 'diffA', 'diffB', 'search', 'query'])
+      stripKeys(data, ['input', 'diffA', 'diffB', 'sourceName']),
+      stripKeys(data, ['input', 'diffA', 'diffB', 'search', 'query', 'sourceName'])
     ];
 
     for (let i = 0; i < attempts.length; i++) {
@@ -549,6 +558,7 @@ class Component extends DCLogic {
   async doShare() {
     const S = this.state;
     const data = { theme: S.theme, direction: S.direction, view: S.view, indent: S.indent, softWrap: S.softWrap, mode: S.mode, input: S.input };
+    if (S.sourceName) data.sourceName = S.sourceName;
     try {
       const hash = 'd=' + b64urlEncode(JSON.stringify(data));
       const url = location.origin + location.pathname + location.search + '#' + hash;
@@ -1062,7 +1072,9 @@ class Component extends DCLogic {
 
   applyInput(val, extra) {
     if (this.editorRef.current && this.editorRef.current.value !== val) this.editorRef.current.value = val;
-    this.setState(Object.assign({ input: val, docInput: val }, extra || {}));
+    const next = Object.assign({ input: val, docInput: val }, extra || {});
+    if (!String(val || '').trim() && !Object.prototype.hasOwnProperty.call(next, 'sourceName')) next.sourceName = '';
+    this.setState(next);
   }
 
   nodeCopyText(n) {
@@ -1767,7 +1779,7 @@ class Component extends DCLogic {
   // ---------- handlers ----------
   loadFile(file) {
     const r = new FileReader();
-    r.onload = () => { const v = String(r.result); this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0 }); };
+    r.onload = () => { const v = String(r.result); this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0, sourceName: String(file && file.name ? file.name : '').trim().slice(0, SOURCE_NAME_MAX_LEN) }); };
     r.readAsText(file);
   }
 
@@ -2404,11 +2416,13 @@ class Component extends DCLogic {
       input: S.input, onInput: (e) => {
         const val = e.target.value;
         // Keep the controlled textarea in sync on every keystroke so caret position stays stable.
-        this.setState({ input: val });
+        this.setState(val.trim() ? { input: val } : { input: val, sourceName: '' });
         clearTimeout(this._docTimer);
         // Parse/explorer work remains debounced via docInput for large documents.
         this._docTimer = setTimeout(() => this.setState(s => (s.docInput === val ? null : { docInput: val })), 160);
       },
+      sourceName: S.sourceName,
+      onSourceName: (e) => this.setState({ sourceName: e.target.value.slice(0, SOURCE_NAME_MAX_LEN) }),
       onEditorScroll: (e) => this.syncEditorLayers(e.target),
       editorRef: this.editorRef, highlightRef: this.highlightRef, gutterRef: this.gutterRef, fileRef: this.fileRef, dropRef: this.dropRef, treeScrollRef: this.treeScrollRef,
       highlightEl, highlightStyle, gutterText, taStyle,
@@ -2429,7 +2443,7 @@ class Component extends DCLogic {
       onConvert: () => this.convert(), convertLabel: isXml ? 'To JSON' : 'To XML',
       onUploadClick: () => this.fileRef.current && this.fileRef.current.click(),
       onUpload: (e) => { const f = e.target.files && e.target.files[0]; if (f) this.loadFile(f); e.target.value = ''; },
-      onSample: () => { const v = isXml ? this.jsonToXml(JSON.parse(SAMPLE_JSON)) : SAMPLE_JSON; this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0 }); },
+      onSample: () => { const v = isXml ? this.jsonToXml(JSON.parse(SAMPLE_JSON)) : SAMPLE_JSON; this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0, sourceName: '' }); },
       onCopySource: () => this.copy(S.input, '__src'), copyLabel: S.copied === '__src' ? 'Copied ✓' : 'Copy',
       onDownload: () => { const blob = new Blob([S.input], { type: isXml ? 'text/xml' : 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'document.' + (isXml ? 'xml' : 'json'); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); },
       onClear: () => this.applyInput('', { collapsed: new Set(), search: '', query: '' }),
