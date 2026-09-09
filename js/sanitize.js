@@ -585,15 +585,61 @@
   // Reads the *merged* profile (default + any existing override) as the
   // base, lets `mutatorFn` change it, then writes the whole profile back as
   // that profile's override — the read/merge/write every rule edit needs.
+  // Marks the result `__dirty` (unsaved changes since the last export/
+  // import) — cleared by exportProfile() or removeProfileOverride().
   function updateProfileOverride(profileId, mutatorFn) {
     var merged = getMergedRuleset();
     var base = merged.profiles.find(function (p) { return p.id === profileId; });
     if (!base) return false;
     var draft = JSON.parse(JSON.stringify(base));
     mutatorFn(draft);
+    draft.__dirty = true;
     var overrides = loadRuleOverrides();
     overrides.profiles = (overrides.profiles || []).filter(function (p) { return p.id !== profileId; }).concat(draft);
     return saveRuleOverrides(overrides);
+  }
+
+  function slugify(name) {
+    return String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'ruleset';
+  }
+
+  // Builds a clean, downloadable profile object under the given name (no
+  // internal __dirty bookkeeping field). A built-in starting-point profile
+  // (servicenow/generic) always forks to a new id, since you can't overwrite
+  // a starting point; any other (already-custom/imported) profile updates
+  // in place under the same id, and this also clears its local __dirty flag
+  // since exporting is that profile's "save point".
+  function exportProfile(profile, name) {
+    var isBuiltIn = profile.id === 'servicenow' || profile.id === 'generic';
+    var result = {
+      id: isBuiltIn ? (slugify(name) + '-' + Date.now().toString(36)) : profile.id,
+      name: name,
+      keyRules: profile.keyRules || [],
+      patternRules: profile.patternRules || [],
+    };
+    if (!isBuiltIn) {
+      var overrides = loadRuleOverrides();
+      overrides.profiles = (overrides.profiles || []).filter(function (p) { return p.id !== profile.id; }).concat(Object.assign({}, result, { __dirty: false }));
+      saveRuleOverrides(overrides);
+    }
+    return result;
+  }
+
+  // Merges every profile from an imported ruleset into the existing
+  // overrides by id (replacing a matching id, adding a new one) — unlike a
+  // wholesale save, this never discards customizations to *other* profiles
+  // that simply weren't part of the imported file. Every imported profile
+  // is forced clean (__dirty:false) regardless of what the file contains.
+  // Returns the ids that were imported, in file order.
+  function importAndMergeRuleset(ruleset) {
+    var incoming = (ruleset && ruleset.profiles || []).map(function (p) {
+      return Object.assign({}, p, { __dirty: false });
+    });
+    var overrides = loadRuleOverrides();
+    var incomingIds = incoming.map(function (p) { return p.id; });
+    overrides.profiles = (overrides.profiles || []).filter(function (p) { return incomingIds.indexOf(p.id) === -1; }).concat(incoming);
+    saveRuleOverrides(overrides);
+    return incomingIds;
   }
 
   // Override profiles fully replace a default profile of the same id;
@@ -671,7 +717,9 @@
     clearRuleOverrides: clearRuleOverrides,
     removeProfileOverride: removeProfileOverride,
     updateProfileOverride: updateProfileOverride,
+    exportProfile: exportProfile,
     importRulesetText: importRulesetText,
+    importAndMergeRuleset: importAndMergeRuleset,
     loadMapping: loadMapping,
     saveMapping: saveMapping,
     clearMapping: clearMapping,

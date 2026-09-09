@@ -306,6 +306,7 @@
       <span style="{{ badgeStyle }}">{{ sanitizeFormatBadge }}</span>
       <div style="flex:1"></div>
       {{ sanitizeProfileSelectorEl }}
+      <button title="Lock/unlock scrolling both panes together" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onToggleSanitizeScrollLock }}">{{ sanitizeScrollLockIcon }}{{ sanitizeScrollLockLabel }}</button>
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSanitizeSample }}">{{ iconFileDoc }}Sample</button>
       <button style="{{ btnGhost }}" style-hover="{{ btnHover }}" onclick="{{ onSanitizeClear }}">{{ iconTrash }}Clear</button>
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onToggleSanitizeRules }}">{{ iconSettings }}Rules</button>
@@ -368,6 +369,14 @@
         <button style="{{ btnGhost }}" style-hover="{{ btnHover }}" onclick="{{ onResetSanitizeRules }}">{{ iconTrash }}Reset overrides</button>
         <input type="file" ref="{{ sanitizeFileRef }}" onchange="{{ onSanitizeImport }}" accept=".json,application/json" style="display:none">
       </div>
+      <sc-if value="{{ sanitizeExportPromptOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:10px 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border,#e3e6ef);background:var(--accent-weak,rgba(109,94,252,.11));flex:0 0 auto">
+          <span style="font:600 11.5px/1 var(--font-ui);color:var(--text-dim,#565d73);white-space:nowrap">Ruleset name</span>
+          <input type="text" value="{{ sanitizeExportName }}" onchange="{{ onSanitizeExportNameChange }}" placeholder="e.g. My ServiceNow Variant" style="flex:1 1 160px;min-width:0;height:28px;border:1px solid var(--border,#e3e6ef);border-radius:6px;background:var(--elev,#fff);color:var(--text,#1b1e2b);font:500 12px/1 var(--font-ui);padding:0 8px">
+          <button style="height:28px;padding:0 12px;border:none;border-radius:6px;background:var(--accent,#6d5efc);color:var(--accent-contrast,#fff);font:700 11px/1 var(--font-ui);cursor:pointer" onclick="{{ onConfirmSanitizeExport }}">Download</button>
+          <button style="height:28px;padding:0 12px;border:1px solid var(--border,#e3e6ef);border-radius:6px;background:transparent;color:var(--text-dim,#565d73);font:600 11px/1 var(--font-ui);cursor:pointer" onclick="{{ onCancelSanitizeExport }}">Cancel</button>
+        </div>
+      </sc-if>
       <sc-if value="{{ sanitizeRulesImportError }}" hint-placeholder-val="{{ false }}">
         <div style="margin:10px 18px 0;padding:8px 10px;border-radius:8px;background:var(--err-weak,rgba(210,59,59,.08));color:var(--err,#d23b3b);font:500 12px/1.4 var(--font-ui)">{{ sanitizeRulesImportError }}</div>
       </sc-if>

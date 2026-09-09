@@ -286,5 +286,23 @@
         13, 13, 'vertical-align:text-bottom;margin-right:3px'
       );
     },
+
+    // Lock / scroll-locked  (13×13, inline style for alignment)
+    lock: function () {
+      return ic(
+        '<rect x="3" y="6.5" width="8" height="5.5" rx="1"/>' +
+        '<path d="M4.5 6.5V4.8a2.5 2.5 0 015 0v1.7"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
+
+    // Unlock / scroll-unlocked  (13×13, inline style for alignment)
+    unlock: function () {
+      return ic(
+        '<rect x="3" y="6.5" width="8" height="5.5" rx="1"/>' +
+        '<path d="M4.5 6.5V4.8a2.5 2.5 0 014.9-.6"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
   };
 })();

@@ -348,3 +348,60 @@ test('removeProfileOverride reverts only that profile to its shipped default', (
   assert.ok(sn.keyRules.length > 0, 'servicenow should be back to its shipped defaults');
   assert.equal(generic.keyRules.length, 0, 'generic override should be untouched');
 });
+
+test('updateProfileOverride marks the profile dirty; a shipped profile with no override is not dirty', () => {
+  const S = loadSanitizeModule();
+  const clean = S.getMergedRuleset().profiles.find((p) => p.id === 'servicenow');
+  assert.ok(!clean.__dirty);
+  S.updateProfileOverride('servicenow', (profile) => { profile.keyRules.push({ id: 'x', type: 'key', match: 'x', matchMode: 'wildcard', generator: 'generic' }); });
+  const dirty = S.getMergedRuleset().profiles.find((p) => p.id === 'servicenow');
+  assert.equal(dirty.__dirty, true);
+});
+
+test('removeProfileOverride clears dirty along with the override (reverts to the clean shipped default)', () => {
+  const S = loadSanitizeModule();
+  S.updateProfileOverride('servicenow', (profile) => { profile.keyRules = []; });
+  S.removeProfileOverride('servicenow');
+  const sn = S.getMergedRuleset().profiles.find((p) => p.id === 'servicenow');
+  assert.ok(!sn.__dirty);
+});
+
+test('exportProfile forks a built-in profile to a new id and leaves the original dirty state untouched', () => {
+  const S = loadSanitizeModule();
+  S.updateProfileOverride('servicenow', (profile) => { profile.keyRules.push({ id: 'x', type: 'key', match: 'x', matchMode: 'wildcard', generator: 'generic' }); });
+  const dirtySn = S.getMergedRuleset().profiles.find((p) => p.id === 'servicenow');
+  const exported = S.exportProfile(dirtySn, 'My ServiceNow Variant');
+  assert.notEqual(exported.id, 'servicenow');
+  assert.equal(exported.name, 'My ServiceNow Variant');
+  assert.ok(!('__dirty' in exported), 'exported JSON should not carry internal bookkeeping fields');
+  // the original servicenow profile (and its dirty state) is unaffected by exporting a fork of it
+  const stillDirtySn = S.getMergedRuleset().profiles.find((p) => p.id === 'servicenow');
+  assert.equal(stillDirtySn.__dirty, true);
+  // the fork itself is not registered as a selectable profile just by exporting
+  assert.ok(!S.getMergedRuleset().profiles.some((p) => p.id === exported.id));
+});
+
+test('exportProfile updates an already-custom profile in place and clears its dirty flag', () => {
+  const S = loadSanitizeModule();
+  const imported = S.importAndMergeRuleset({ profiles: [{ id: 'my-custom', name: 'My Custom', keyRules: [], patternRules: [] }] });
+  S.updateProfileOverride(imported[0], (profile) => { profile.keyRules.push({ id: 'x', type: 'key', match: 'x', matchMode: 'wildcard', generator: 'generic' }); });
+  const dirtyCustom = S.getMergedRuleset().profiles.find((p) => p.id === 'my-custom');
+  assert.equal(dirtyCustom.__dirty, true);
+  const exported = S.exportProfile(dirtyCustom, 'My Custom Renamed');
+  assert.equal(exported.id, 'my-custom');
+  assert.equal(exported.name, 'My Custom Renamed');
+  const afterExport = S.getMergedRuleset().profiles.find((p) => p.id === 'my-custom');
+  assert.equal(afterExport.__dirty, false);
+  assert.equal(afterExport.name, 'My Custom Renamed');
+});
+
+test('importAndMergeRuleset adds/replaces profiles by id without clobbering an unrelated profile\'s override', () => {
+  const S = loadSanitizeModule();
+  S.updateProfileOverride('generic', (profile) => { profile.keyRules.push({ id: 'kept', type: 'key', match: 'kept', matchMode: 'wildcard', generator: 'generic' }); });
+  const importedIds = S.importAndMergeRuleset({ profiles: [{ id: 'servicenow-variant', name: 'SN Variant', keyRules: [], patternRules: [] }] });
+  assert.deepEqual(importedIds, ['servicenow-variant']);
+  const merged = S.getMergedRuleset();
+  assert.ok(merged.profiles.some((p) => p.id === 'servicenow-variant' && p.name === 'SN Variant' && p.__dirty === false));
+  const generic = merged.profiles.find((p) => p.id === 'generic');
+  assert.ok(generic.keyRules.some((r) => r.id === 'kept'), 'importing an unrelated ruleset must not discard generic\'s existing customization');
+});

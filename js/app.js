@@ -200,6 +200,7 @@ class Component extends DCLogic {
       docInput: P.input != null ? P.input : '',
       sourceName: P.sourceName || '',
       softWrap: !!P.softWrap,
+      sanitizeScrollLock: !!P.sanitizeScrollLock,
       indent: P.indent || '2',
       showBeautifyMenu: false,
       view: P.view || 'tree',
@@ -236,6 +237,8 @@ class Component extends DCLogic {
       sanitizeRuleEditing: null,
       sanitizeRuleDraft: null,
       sanitizeRuleError: null,
+      sanitizeExportPromptOpen: false,
+      sanitizeExportName: '',
     };
     this.editorRef = React.createRef();
     this.highlightRef = React.createRef();
@@ -348,7 +351,7 @@ class Component extends DCLogic {
       prevState.rememberPrefs.explorer !== this.state.rememberPrefs.explorer ||
       prevState.rememberPrefs.find !== this.state.rememberPrefs.find
     );
-    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.sourceName !== this.state.sourceName || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
+    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.sourceName !== this.state.sourceName || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.sanitizeScrollLock !== this.state.sanitizeScrollLock || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
       this.schedulePersist();
     }
     this.syncEditorLayers();
@@ -364,6 +367,7 @@ class Component extends DCLogic {
       direction: S.direction,
       indent: S.indent,
       softWrap: S.softWrap,
+      sanitizeScrollLock: S.sanitizeScrollLock,
       rememberPrefs: remember,
     };
 
@@ -586,7 +590,7 @@ class Component extends DCLogic {
 
   async doShare() {
     const S = this.state;
-    const data = { theme: S.theme, direction: S.direction, view: S.view, indent: S.indent, softWrap: S.softWrap, mode: S.mode, input: S.input };
+    const data = { theme: S.theme, direction: S.direction, view: S.view, indent: S.indent, softWrap: S.softWrap, sanitizeScrollLock: S.sanitizeScrollLock, mode: S.mode, input: S.input };
     if (S.sourceName) data.sourceName = S.sourceName;
     try {
       const hash = 'd=' + b64urlEncode(JSON.stringify(data));
@@ -1143,6 +1147,19 @@ class Component extends DCLogic {
 
   syncEditorLayers(sourceEl) {
     this.syncLayers(this.editorRef, this.highlightRef, this.gutterRef, sourceEl);
+  }
+
+  // When scroll lock is on, mirrors scroll position from one Sanitize pane
+  // onto the other. The same tolerant-diff guard syncLayers() uses (only
+  // set when the difference is real) is what stops this from ping-ponging
+  // forever: setting the other pane's scrollTop fires its own onscroll,
+  // but by then the values already match so that call is a no-op.
+  syncSanitizePanes(sourceEl) {
+    if (!this.state.sanitizeScrollLock || !sourceEl) return;
+    const other = sourceEl === this.sanitizeInputEditorRef.current ? this.sanitizeOutputEditorRef.current : this.sanitizeInputEditorRef.current;
+    if (!other) return;
+    if (Math.abs(other.scrollTop - sourceEl.scrollTop) > 1) other.scrollTop = sourceEl.scrollTop;
+    if (Math.abs(other.scrollLeft - sourceEl.scrollLeft) > 1) other.scrollLeft = sourceEl.scrollLeft;
   }
 
   async copy(text, key) {
@@ -1919,24 +1936,43 @@ class Component extends DCLogic {
     this.setState({ sanitizeOverrides: {} });
   }
 
-  exportSanitizeRuleset() {
-    const merged = this.getSanitizeRuleset();
-    const blob = new Blob([JSON.stringify(merged, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'paw-sanitize-rules.json';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  // Export prompts for a ruleset name (inline, in the Rules modal) so the
+  // name travels inside the exported file and shows up when re-imported.
+  openSanitizeExportPrompt() {
+    this.setState({ sanitizeExportPromptOpen: true, sanitizeExportName: this.getSanitizeProfile().name });
   }
 
+  cancelSanitizeExportPrompt() {
+    this.setState({ sanitizeExportPromptOpen: false, sanitizeExportName: '' });
+  }
+
+  confirmSanitizeExport() {
+    const name = (this.state.sanitizeExportName || '').trim();
+    if (!name) return;
+    const result = window.PAW_SANITIZE.exportProfile(this.getSanitizeProfile(), name);
+    const blob = new Blob([JSON.stringify({ profiles: [result] }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = result.id + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    this._sanitizeRun = null;
+    this.setState({ sanitizeExportPromptOpen: false, sanitizeExportName: '' });
+  }
+
+  // Merges the imported ruleset's profiles into the existing overrides by
+  // id (see importAndMergeRuleset) rather than wholesale-replacing the
+  // store, so importing one ruleset never discards customizations to an
+  // unrelated profile. Selects the first imported profile so it's visible
+  // immediately.
   importSanitizeRulesetFile(file) {
     const r = new FileReader();
     r.onload = () => {
       const res = window.PAW_SANITIZE.importRulesetText(String(r.result));
       if (res.ok) {
-        window.PAW_SANITIZE.saveRuleOverrides(res.ruleset);
+        const importedIds = window.PAW_SANITIZE.importAndMergeRuleset(res.ruleset);
         this._sanitizeRun = null;
-        this.setState({ sanitizeRulesImportError: null });
+        this.setState({ sanitizeRulesImportError: null, sanitizeProfileId: importedIds[0] || this.state.sanitizeProfileId, sanitizeOverrides: {}, sanitizeManualRules: [] });
       } else {
         this.setState({ sanitizeRulesImportError: res.error });
       }
@@ -2042,14 +2078,28 @@ class Component extends DCLogic {
     }));
   }
 
+  // A real <select> (not the old ServiceNow/Generic segmented buttons) so
+  // any imported/custom ruleset shows up as a selectable entry too. Dirty
+  // (unsaved) profiles get a "●" prefix in their option label, plus a
+  // separate badge next to the dropdown for the *active* profile, since a
+  // native <option>'s bullet can't be colored/styled on its own.
   renderSanitizeProfileSelector(tok) {
     const ruleset = this.getSanitizeRuleset();
     const activeId = this.state.sanitizeProfileId;
-    return h('div', { style: { display: 'flex', padding: '3px', background: tok.panel2, borderRadius: '9px', gap: '2px' } }, ruleset.profiles.map((p) => h('button', {
-      key: p.id,
-      onClick: () => this.setState({ sanitizeProfileId: p.id, sanitizeOverrides: {}, sanitizeManualRules: [] }),
-      style: { height: '26px', padding: '0 11px', border: 'none', borderRadius: '6px', cursor: 'pointer', font: '700 10px/1 ' + tok.fontUi, letterSpacing: '.04em', textTransform: 'uppercase', background: p.id === activeId ? tok.accentWeak : tok.panel2, color: p.id === activeId ? tok.accent : tok.textDim },
-    }, p.name)));
+    const active = ruleset.profiles.find((p) => p.id === activeId);
+    const selectStyle = { height: '30px', padding: '0 8px', border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, background: tok.elev, color: tok.text, font: '600 12px/1 ' + tok.fontUi, cursor: 'pointer' };
+    const select = h('select', {
+      value: activeId,
+      onChange: (e) => this.setState({ sanitizeProfileId: e.target.value, sanitizeOverrides: {}, sanitizeManualRules: [] }),
+      style: selectStyle,
+    }, ruleset.profiles.map((p) => h('option', { key: p.id, value: p.id }, (p.__dirty ? '● ' : '') + p.name)));
+    const dirtyBadge = active && active.__dirty
+      ? h('span', {
+        title: 'Unsaved rule changes — export to save this ruleset.',
+        style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '8px', height: '8px', borderRadius: '50%', background: tok.sem.warn, flex: '0 0 auto' },
+      })
+      : null;
+    return h('div', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px' } }, select, dirtyBadge);
   }
 
   // Rule editor: edits the currently active profile only (per the design
@@ -2860,8 +2910,12 @@ class Component extends DCLogic {
       sanitizeOutputHighlightEl,
       sanitizeOutputTaStyle,
       sanitizeHighlightStyle,
-      onSanitizeInputScroll: (e) => this.syncLayers(this.sanitizeInputEditorRef, this.sanitizeInputHighlightRef, null, e.target),
-      onSanitizeOutputScroll: (e) => this.syncLayers(this.sanitizeOutputEditorRef, this.sanitizeOutputHighlightRef, null, e.target),
+      onSanitizeInputScroll: (e) => { this.syncLayers(this.sanitizeInputEditorRef, this.sanitizeInputHighlightRef, null, e.target); this.syncSanitizePanes(e.target); },
+      onSanitizeOutputScroll: (e) => { this.syncLayers(this.sanitizeOutputEditorRef, this.sanitizeOutputHighlightRef, null, e.target); this.syncSanitizePanes(e.target); },
+      sanitizeScrollLock: S.sanitizeScrollLock,
+      onToggleSanitizeScrollLock: () => this.setState(s => ({ sanitizeScrollLock: !s.sanitizeScrollLock })),
+      sanitizeScrollLockLabel: S.sanitizeScrollLock ? 'Scroll: Locked' : 'Scroll: Unlocked',
+      sanitizeScrollLockIcon: window.PAW_ICONS ? (S.sanitizeScrollLock ? window.PAW_ICONS.lock() : window.PAW_ICONS.unlock()) : null,
       sanitizeHasSelection: !!S.sanitizeSelection,
       onSanitizeMarkRedact: () => this.markSanitizeSelectionRedact(),
       sanitizeMarkBtnStyle: S.sanitizeSelection ? btnStyle : Object.assign({}, btnStyle, { opacity: .45, cursor: 'default' }),
@@ -2884,9 +2938,14 @@ class Component extends DCLogic {
       sanitizeFileRef: this.sanitizeFileRef,
       onSanitizeImportClick: () => this.sanitizeFileRef.current && this.sanitizeFileRef.current.click(),
       onSanitizeImport: (e) => { const f = e.target.files && e.target.files[0]; if (f) this.importSanitizeRulesetFile(f); e.target.value = ''; },
-      onSanitizeExport: () => this.exportSanitizeRuleset(),
+      onSanitizeExport: () => this.openSanitizeExportPrompt(),
       onResetSanitizeRules: () => this.resetSanitizeRuleOverrides(),
       sanitizeRulesImportError: S.sanitizeRulesImportError,
+      sanitizeExportPromptOpen: S.sanitizeExportPromptOpen,
+      sanitizeExportName: S.sanitizeExportName,
+      onSanitizeExportNameChange: (e) => this.setState({ sanitizeExportName: e.target.value }),
+      onConfirmSanitizeExport: () => this.confirmSanitizeExport(),
+      onCancelSanitizeExport: () => this.cancelSanitizeExportPrompt(),
       sanitizeFormatBadge: sanitizeRun.format === 'empty' ? 'EMPTY' : String(sanitizeRun.format).toUpperCase(),
 
       // Icon React elements (from js/icons.js via window.PAW_ICONS)
