@@ -133,6 +133,33 @@ test('email generator preserves the general shape (local@domain.tld)', () => {
   assert.match(fake, /^[a-z0-9]+@[a-z]+\.com$/);
 });
 
+test('companyName generator produces a "Word Suffix" org name, deterministically, distinct from the name generator', () => {
+  const S = loadSanitizeModule();
+  const fake = S.generateFake('Acme Corp', { generator: 'companyName' });
+  assert.match(fake, /^[A-Za-z ]+ (Inc\.|LLC|Co\.|Corp\.|Ltd\.)$/);
+  assert.equal(S.generateFake('Acme Corp', { generator: 'companyName' }), fake);
+  assert.notEqual(fake, S.generateFake('Acme Corp', { generator: 'name' }));
+});
+
+test('numericId generator preserves a leading alpha prefix and only randomizes digits', () => {
+  const S = loadSanitizeModule();
+  const fake = S.generateFake('INC0012345', { generator: 'numericId' });
+  assert.match(fake, /^INC\d{7}$/);
+  assert.notEqual(fake, 'INC0012345');
+});
+
+test('default ServiceNow rules cover number/account/customer_account/company/contact/serial_number', () => {
+  const S = loadSanitizeModule();
+  const sn = S.getMergedRuleset().profiles.find((p) => p.id === 'servicenow');
+  const byMatch = Object.fromEntries(sn.keyRules.map((r) => [r.match, r]));
+  assert.equal(byMatch.number.generator, 'numericId');
+  assert.equal(byMatch.account.generator, 'companyName');
+  assert.equal(byMatch.customer_account.generator, 'companyName');
+  assert.equal(byMatch.company.generator, 'companyName');
+  assert.equal(byMatch.contact.generator, 'name');
+  assert.equal(byMatch.serial_number.generator, 'generic');
+});
+
 test('findStructuralHits matches by key (whole value) and by value shape (substring within text)', () => {
   const S = loadSanitizeModule();
   const root = {
@@ -294,4 +321,30 @@ test('default ServiceNow ruleset ships with the documented key rules', () => {
   ['*sys_id*', 'caller_id', 'opened_by', 'u_phone', '*email*', '*name*'].forEach((expected) => {
     assert.ok(keys.includes(expected), `expected default rules to include a key rule for ${expected}`);
   });
+});
+
+test('updateProfileOverride forks the merged profile into an override on first edit, leaving other profiles untouched', () => {
+  const S = loadSanitizeModule();
+  S.updateProfileOverride('servicenow', (profile) => {
+    profile.keyRules.push({ id: 'custom-1', label: 'foo', type: 'key', match: 'foo', matchMode: 'wildcard', generator: 'generic' });
+  });
+  const merged = S.getMergedRuleset();
+  const sn = merged.profiles.find((p) => p.id === 'servicenow');
+  assert.ok(sn.keyRules.some((r) => r.id === 'custom-1'));
+  // the default rules that came along for the fork are still present
+  assert.ok(sn.keyRules.some((r) => r.match === 'sys_id' || r.match === '*sys_id*'));
+  const generic = merged.profiles.find((p) => p.id === 'generic');
+  assert.ok(!generic.keyRules.some((r) => r.id === 'custom-1'));
+});
+
+test('removeProfileOverride reverts only that profile to its shipped default', () => {
+  const S = loadSanitizeModule();
+  S.updateProfileOverride('servicenow', (profile) => { profile.keyRules = []; });
+  S.updateProfileOverride('generic', (profile) => { profile.keyRules = []; });
+  S.removeProfileOverride('servicenow');
+  const merged = S.getMergedRuleset();
+  const sn = merged.profiles.find((p) => p.id === 'servicenow');
+  const generic = merged.profiles.find((p) => p.id === 'generic');
+  assert.ok(sn.keyRules.length > 0, 'servicenow should be back to its shipped defaults');
+  assert.equal(generic.keyRules.length, 0, 'generic override should be untouched');
 });

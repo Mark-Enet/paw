@@ -147,6 +147,8 @@
   var FIRST_NAMES = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Jamie', 'Drew', 'Sam', 'Reese', 'Avery', 'Quinn', 'Parker', 'Rowan', 'Elliot', 'Skyler'];
   var LAST_NAMES = ['Reed', 'Bennett', 'Carter', 'Hayes', 'Foster', 'Coleman', 'Brooks', 'Sawyer', 'Marsh', 'Pierce', 'Vaughn', 'Whitfield', 'Nolan', 'Sutton', 'Ellison', 'Kerr'];
   var DOMAIN_WORDS = ['acme', 'example', 'sample', 'demo', 'testco', 'northwind', 'contoso', 'fabrikam'];
+  var COMPANY_WORDS = ['Northwind', 'Contoso', 'Fabrikam', 'Globex', 'Initech', 'Umbrella', 'Stark', 'Wayne', 'Cyberdyne', 'Hooli', 'Vandelay', 'Massive Dynamic'];
+  var COMPANY_SUFFIXES = ['Inc.', 'LLC', 'Co.', 'Corp.', 'Ltd.'];
 
   function nameFromSeed(seed) {
     var rand = mulberry32(seed);
@@ -184,6 +186,12 @@
       var n = nameFromSeed(hashStr(original));
       // preserve "Full Name" vs "single token" shape
       return /\s/.test(String(original).trim()) ? n.first + ' ' + n.last : n.first;
+    },
+    companyName: function (original) {
+      var rand = mulberry32(hashStr(original));
+      var word = COMPANY_WORDS[Math.floor(rand() * COMPANY_WORDS.length)];
+      var suffix = COMPANY_SUFFIXES[Math.floor(rand() * COMPANY_SUFFIXES.length)];
+      return word + ' ' + suffix;
     },
     email: function (original) {
       var rand = mulberry32(hashStr(original));
@@ -566,6 +574,28 @@
     try { localStorage.removeItem(RULES_LS_KEY); return true; } catch (e) { return false; }
   }
 
+  // Removes just one profile's override (reverting it to its shipped
+  // default) without touching any other profile's customizations.
+  function removeProfileOverride(profileId) {
+    var overrides = loadRuleOverrides();
+    overrides.profiles = (overrides.profiles || []).filter(function (p) { return p.id !== profileId; });
+    return saveRuleOverrides(overrides);
+  }
+
+  // Reads the *merged* profile (default + any existing override) as the
+  // base, lets `mutatorFn` change it, then writes the whole profile back as
+  // that profile's override — the read/merge/write every rule edit needs.
+  function updateProfileOverride(profileId, mutatorFn) {
+    var merged = getMergedRuleset();
+    var base = merged.profiles.find(function (p) { return p.id === profileId; });
+    if (!base) return false;
+    var draft = JSON.parse(JSON.stringify(base));
+    mutatorFn(draft);
+    var overrides = loadRuleOverrides();
+    overrides.profiles = (overrides.profiles || []).filter(function (p) { return p.id !== profileId; }).concat(draft);
+    return saveRuleOverrides(overrides);
+  }
+
   // Override profiles fully replace a default profile of the same id;
   // profiles with a new id are appended. Simple, predictable "last one in
   // wins by id" merge — good enough for a single-user override layer.
@@ -639,9 +669,12 @@
     loadRuleOverrides: loadRuleOverrides,
     saveRuleOverrides: saveRuleOverrides,
     clearRuleOverrides: clearRuleOverrides,
+    removeProfileOverride: removeProfileOverride,
+    updateProfileOverride: updateProfileOverride,
     importRulesetText: importRulesetText,
     loadMapping: loadMapping,
     saveMapping: saveMapping,
     clearMapping: clearMapping,
+    generatorNames: Object.keys(GENERATORS),
   };
 })();

@@ -277,5 +277,14 @@
         13, 13, 'vertical-align:text-bottom;margin-right:3px'
       );
     },
+
+    // Shield / sanitize  (13×13, inline style for alignment)
+    shield: function () {
+      return ic(
+        '<path d="M7 1.6l4.6 1.7v3.6c0 3-1.9 5.2-4.6 6.1-2.7-.9-4.6-3.1-4.6-6.1V3.3z"/>' +
+        '<path d="M4.9 7l1.6 1.6 2.6-3"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
   };
 })();

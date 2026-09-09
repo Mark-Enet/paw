@@ -233,6 +233,9 @@ class Component extends DCLogic {
       sanitizeSaveManualAsRule: false,
       showSanitizeRules: false,
       sanitizeRulesImportError: null,
+      sanitizeRuleEditing: null,
+      sanitizeRuleDraft: null,
+      sanitizeRuleError: null,
     };
     this.editorRef = React.createRef();
     this.highlightRef = React.createRef();
@@ -244,6 +247,10 @@ class Component extends DCLogic {
     this.dropRef = React.createRef();
     this.activeMatchRef = React.createRef();
     this.sanitizeFileRef = React.createRef();
+    this.sanitizeInputEditorRef = React.createRef();
+    this.sanitizeInputHighlightRef = React.createRef();
+    this.sanitizeOutputEditorRef = React.createRef();
+    this.sanitizeOutputHighlightRef = React.createRef();
     this._lastMatch = -1;
     this._copyTimer = null;
     this._model = null;
@@ -345,6 +352,8 @@ class Component extends DCLogic {
       this.schedulePersist();
     }
     this.syncEditorLayers();
+    this.syncLayers(this.sanitizeInputEditorRef, this.sanitizeInputHighlightRef, null);
+    this.syncLayers(this.sanitizeOutputEditorRef, this.sanitizeOutputHighlightRef, null);
   }
 
   persistNow() {
@@ -1115,16 +1124,25 @@ class Component extends DCLogic {
     return out;
   }
 
-  syncEditorLayers(sourceEl) {
-    const ta = sourceEl || this.editorRef.current;
+  // Keeps a highlighted <pre> overlay (and optional line-number gutter)
+  // scrolled in lockstep with the real, transparent-text <textarea> sitting
+  // on top of it. Takes explicit refs so the same overlay technique used by
+  // the Format tab's source panel can be reused for other editable panes
+  // (e.g. the Sanitize tab's input/output) without a second hardcoded copy.
+  syncLayers(editorRef, highlightRef, gutterRef, sourceEl) {
+    const ta = sourceEl || (editorRef && editorRef.current);
     if (!ta) return;
     const top = ta.scrollTop;
     const left = ta.scrollLeft;
-    if (this.highlightRef.current) {
-      if (Math.abs(this.highlightRef.current.scrollTop - top) > 1) this.highlightRef.current.scrollTop = top;
-      if (Math.abs(this.highlightRef.current.scrollLeft - left) > 1) this.highlightRef.current.scrollLeft = left;
+    if (highlightRef && highlightRef.current) {
+      if (Math.abs(highlightRef.current.scrollTop - top) > 1) highlightRef.current.scrollTop = top;
+      if (Math.abs(highlightRef.current.scrollLeft - left) > 1) highlightRef.current.scrollLeft = left;
     }
-    if (this.gutterRef.current && Math.abs(this.gutterRef.current.scrollTop - top) > 1) this.gutterRef.current.scrollTop = top;
+    if (gutterRef && gutterRef.current && Math.abs(gutterRef.current.scrollTop - top) > 1) gutterRef.current.scrollTop = top;
+  }
+
+  syncEditorLayers(sourceEl) {
+    this.syncLayers(this.editorRef, this.highlightRef, this.gutterRef, sourceEl);
   }
 
   async copy(text, key) {
@@ -1861,6 +1879,11 @@ class Component extends DCLogic {
     this.setState({ sanitizeInput: text, sanitizeOverrides: {}, sanitizeManualRules: [], sanitizeSelection: null });
   }
 
+  // Used by the "Send to Sanitize" buttons on the Explore and Diff tabs.
+  sendToSanitize(text) {
+    this.setState({ mode: 'sanitize', sanitizeInput: text, sanitizeOverrides: {}, sanitizeManualRules: [], sanitizeSelection: null });
+  }
+
   toggleSanitizeMatchExcluded(id) {
     this.setState(s => {
       const cur = s.sanitizeOverrides[id] || {};
@@ -1883,12 +1906,8 @@ class Component extends DCLogic {
     const label = 'Manual: "' + (text.length > 24 ? text.slice(0, 24) + '…' : text) + '"';
     const rule = { id: 'manual-' + Date.now(), label, type: 'pattern', pattern: escaped, generator: 'generic' };
     if (S.sanitizeSaveManualAsRule) {
-      const profile = this.getSanitizeProfile();
-      const overrides = window.PAW_SANITIZE.loadRuleOverrides();
-      const existing = overrides.profiles.find(p => p.id === profile.id) || profile;
-      const nextProfile = Object.assign({}, existing, { patternRules: (existing.patternRules || []).concat(rule) });
-      const nextProfiles = overrides.profiles.filter(p => p.id !== profile.id).concat(nextProfile);
-      window.PAW_SANITIZE.saveRuleOverrides({ profiles: nextProfiles });
+      const profileId = this.getSanitizeProfile().id;
+      window.PAW_SANITIZE.updateProfileOverride(profileId, (profile) => { profile.patternRules = (profile.patternRules || []).concat(rule); });
     }
     this.setState(s => ({ sanitizeManualRules: s.sanitizeManualRules.concat(rule), sanitizeSelection: null }));
   }
@@ -1925,10 +1944,76 @@ class Component extends DCLogic {
     r.readAsText(file);
   }
 
+  // Reverts only the active profile back to its shipped default — other
+  // profiles' overrides (and the localStorage mapping) are untouched.
   resetSanitizeRuleOverrides() {
-    window.PAW_SANITIZE.clearRuleOverrides();
+    window.PAW_SANITIZE.removeProfileOverride(this.getSanitizeProfile().id);
     this._sanitizeRun = null;
-    this.setState({ sanitizeOverrides: {}, sanitizeRulesImportError: null });
+    this.setState({ sanitizeOverrides: {}, sanitizeRulesImportError: null, sanitizeRuleEditing: null });
+  }
+
+  // --- in-app rule editor: edits the currently active profile only ---
+
+  startAddSanitizeRule(section) {
+    const draft = section === 'key'
+      ? { label: '', match: '', matchMode: 'wildcard', generator: 'generic' }
+      : { label: '', pattern: '', generator: 'generic' };
+    this.setState({ sanitizeRuleEditing: { section, index: null }, sanitizeRuleDraft: draft, sanitizeRuleError: null });
+  }
+
+  startEditSanitizeRule(section, index) {
+    const profile = this.getSanitizeProfile();
+    const rule = (section === 'key' ? profile.keyRules : profile.patternRules)[index];
+    if (!rule) return;
+    const draft = section === 'key'
+      ? { label: rule.label || '', match: rule.match || '', matchMode: rule.matchMode || 'wildcard', generator: rule.generator || 'generic' }
+      : { label: rule.label || '', pattern: rule.pattern || '', generator: rule.generator || 'generic' };
+    this.setState({ sanitizeRuleEditing: { section, index }, sanitizeRuleDraft: draft, sanitizeRuleError: null });
+  }
+
+  cancelSanitizeRuleEdit() {
+    this.setState({ sanitizeRuleEditing: null, sanitizeRuleDraft: null, sanitizeRuleError: null });
+  }
+
+  updateSanitizeRuleDraft(patch) {
+    this.setState(s => ({ sanitizeRuleDraft: Object.assign({}, s.sanitizeRuleDraft, patch) }));
+  }
+
+  saveSanitizeRuleDraft() {
+    const S = this.state;
+    const editing = S.sanitizeRuleEditing;
+    const draft = S.sanitizeRuleDraft;
+    if (!editing || !draft) return;
+    const section = editing.section;
+    const key = section === 'key' ? 'keyRules' : 'patternRules';
+    if (section === 'key' && !draft.match.trim()) { this.setState({ sanitizeRuleError: 'Match text is required.' }); return; }
+    if (section === 'pattern') {
+      if (!draft.pattern.trim()) { this.setState({ sanitizeRuleError: 'Pattern is required.' }); return; }
+      try { new RegExp(draft.pattern); } catch (e) { this.setState({ sanitizeRuleError: 'Invalid regular expression: ' + e.message }); return; }
+    }
+    const profileId = this.getSanitizeProfile().id;
+    window.PAW_SANITIZE.updateProfileOverride(profileId, (profile) => {
+      const list = (profile[key] || []).slice();
+      const isNew = editing.index == null;
+      const existingId = isNew ? null : (list[editing.index] && list[editing.index].id);
+      const rule = section === 'key'
+        ? { id: existingId || ('custom-' + Date.now()), label: draft.label.trim() || draft.match.trim(), type: 'key', match: draft.match.trim(), matchMode: draft.matchMode, generator: draft.generator }
+        : { id: existingId || ('custom-' + Date.now()), label: draft.label.trim() || draft.pattern.trim(), type: 'pattern', pattern: draft.pattern.trim(), generator: draft.generator };
+      if (isNew) list.push(rule); else list[editing.index] = rule;
+      profile[key] = list;
+    });
+    this._sanitizeRun = null;
+    this.setState({ sanitizeRuleEditing: null, sanitizeRuleDraft: null, sanitizeRuleError: null });
+  }
+
+  deleteSanitizeRule(section, index) {
+    const profileId = this.getSanitizeProfile().id;
+    const key = section === 'key' ? 'keyRules' : 'patternRules';
+    window.PAW_SANITIZE.updateProfileOverride(profileId, (profile) => {
+      profile[key] = (profile[key] || []).filter((_, i) => i !== index);
+    });
+    this._sanitizeRun = null;
+    this.setState({ sanitizeRuleEditing: null, sanitizeRuleDraft: null });
   }
 
   renderSanitizeMatches(matches, tok) {
@@ -1967,16 +2052,60 @@ class Component extends DCLogic {
     }, p.name)));
   }
 
+  // Rule editor: edits the currently active profile only (per the design
+  // note in docs/features/paw-sanitize-design.md — ServiceNow/Generic are
+  // starting points; forking a heavily-customized one into a new named
+  // profile goes through Export -> hand-edit id/name -> Import).
   renderSanitizeRulesPanel(tok) {
-    const ruleset = this.getSanitizeRuleset();
-    const ruleRow = (r) => h('div', { key: r.id, style: { font: '500 12px/1.7 ' + tok.fontMono, color: tok.textDim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, (r.match || r.label || r.id) + '  →  ' + r.generator);
-    return h('div', {}, ruleset.profiles.map((p) => h('div', { key: p.id, style: { marginBottom: '16px' } },
-      h('div', { style: { font: '700 13px/1 ' + tok.fontUi, color: tok.text, marginBottom: '6px' } }, p.name),
-      h('div', { style: { font: '600 10.5px/1 ' + tok.fontUi, color: tok.textFaint, textTransform: 'uppercase', letterSpacing: '.04em', margin: '8px 0 3px' } }, 'Key rules'),
-      (p.keyRules || []).map(ruleRow),
-      h('div', { style: { font: '600 10.5px/1 ' + tok.fontUi, color: tok.textFaint, textTransform: 'uppercase', letterSpacing: '.04em', margin: '10px 0 3px' } }, 'Pattern rules'),
-      (p.patternRules || []).map(ruleRow)
-    )));
+    const profile = this.getSanitizeProfile();
+    const editing = this.state.sanitizeRuleEditing;
+    const addBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: '5px', height: '26px', padding: '0 10px', border: '1px dashed ' + tok.border, borderRadius: '6px', background: 'transparent', color: tok.textDim, font: '600 11px/1 ' + tok.fontUi, cursor: 'pointer', marginTop: '6px' };
+    const section = (label, sectionKind, listKey) => h('div', { key: listKey, style: { marginBottom: '16px' } },
+      h('div', { style: { font: '600 10.5px/1 ' + tok.fontUi, color: tok.textFaint, textTransform: 'uppercase', letterSpacing: '.04em', margin: '8px 0 5px' } }, label),
+      (profile[listKey] || []).map((r, i) => this.renderSanitizeRuleRow(sectionKind, r, i, tok)),
+      (editing && editing.section === sectionKind && editing.index === null) ? this.renderSanitizeRuleForm(tok) : null,
+      h('button', { onClick: () => this.startAddSanitizeRule(sectionKind), style: addBtnStyle }, '+ Add ' + (sectionKind === 'key' ? 'key rule' : 'pattern rule'))
+    );
+    return h('div', {},
+      h('div', { style: { font: '700 13px/1 ' + tok.fontUi, color: tok.text, marginBottom: '10px' } }, 'Editing: ' + profile.name),
+      section('Key rules', 'key', 'keyRules'),
+      section('Pattern rules', 'pattern', 'patternRules')
+    );
+  }
+
+  renderSanitizeRuleRow(section, rule, index, tok) {
+    const editing = this.state.sanitizeRuleEditing;
+    if (editing && editing.section === section && editing.index === index) return this.renderSanitizeRuleForm(tok);
+    const desc = section === 'key' ? (rule.match + (rule.matchMode === 'regex' ? '  (regex)' : '')) : rule.pattern;
+    const iconBtnStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', border: '1px solid ' + tok.border, borderRadius: '6px', background: tok.elev, color: tok.textDim, cursor: 'pointer', flex: '0 0 auto', padding: 0 };
+    return h('div', { key: rule.id, style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' } },
+      h('span', { title: desc, style: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', font: '500 12px/1.6 ' + tok.fontMono, color: tok.textDim } }, desc + '  →  ' + rule.generator),
+      h('button', { title: 'Edit', onClick: () => this.startEditSanitizeRule(section, index), style: iconBtnStyle }, window.PAW_ICONS ? window.PAW_ICONS.pencil() : null),
+      h('button', { title: 'Delete', onClick: () => this.deleteSanitizeRule(section, index), style: iconBtnStyle }, window.PAW_ICONS ? window.PAW_ICONS.trash() : null)
+    );
+  }
+
+  renderSanitizeRuleForm(tok) {
+    const S = this.state;
+    const editing = S.sanitizeRuleEditing;
+    const draft = S.sanitizeRuleDraft;
+    const inputStyle = { flex: '1 1 120px', minWidth: 0, height: '26px', border: '1px solid ' + tok.border, borderRadius: '6px', background: tok.elev, color: tok.text, font: '500 12px/1 ' + tok.fontMono, padding: '0 8px' };
+    const selectStyle = Object.assign({}, inputStyle, { flex: '0 0 auto', font: '500 12px/1 ' + tok.fontUi });
+    const fields = editing.section === 'key'
+      ? [h('input', { key: 'match', placeholder: 'key match (wildcard or regex)', value: draft.match, onChange: (e) => this.updateSanitizeRuleDraft({ match: e.target.value }), style: inputStyle }),
+        h('select', { key: 'mode', value: draft.matchMode, onChange: (e) => this.updateSanitizeRuleDraft({ matchMode: e.target.value }), style: selectStyle },
+          h('option', { value: 'wildcard' }, 'wildcard'), h('option', { value: 'regex' }, 'regex'))]
+      : [h('input', { key: 'pattern', placeholder: 'regex pattern (no ^/$, no flags)', value: draft.pattern, onChange: (e) => this.updateSanitizeRuleDraft({ pattern: e.target.value }), style: inputStyle })];
+    return h('div', { key: 'editing-row', style: { display: 'flex', flexDirection: 'column', gap: '6px', padding: '8px', margin: '4px 0', border: '1px solid ' + tok.accent, borderRadius: '8px', background: tok.accentWeak } },
+      h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+        h('input', { key: 'label', placeholder: 'label (optional)', value: draft.label, onChange: (e) => this.updateSanitizeRuleDraft({ label: e.target.value }), style: Object.assign({}, inputStyle, { flex: '1 1 100px' }) }),
+        ...fields,
+        h('select', { key: 'gen', value: draft.generator, onChange: (e) => this.updateSanitizeRuleDraft({ generator: e.target.value }), style: selectStyle },
+          (window.PAW_SANITIZE.generatorNames || []).map((g) => h('option', { key: g, value: g }, g)))),
+      S.sanitizeRuleError ? h('div', { style: { font: '500 11px/1.4 ' + tok.fontUi, color: tok.sem.err } }, S.sanitizeRuleError) : null,
+      h('div', { style: { display: 'flex', gap: '6px' } },
+        h('button', { onClick: () => this.saveSanitizeRuleDraft(), style: { height: '26px', padding: '0 12px', border: 'none', borderRadius: '6px', background: tok.accent, color: tok.accentContrast, font: '700 11px/1 ' + tok.fontUi, cursor: 'pointer' } }, 'Save'),
+        h('button', { onClick: () => this.cancelSanitizeRuleEdit(), style: { height: '26px', padding: '0 12px', border: '1px solid ' + tok.border, borderRadius: '6px', background: 'transparent', color: tok.textDim, font: '600 11px/1 ' + tok.fontUi, cursor: 'pointer' } }, 'Cancel')));
   }
 
   buildModel() {
@@ -2540,6 +2669,27 @@ class Component extends DCLogic {
     const sanitizeMatchesEl = S.mode === 'sanitize' ? this.renderSanitizeMatches(sanitizeMatches, tok) : null;
     const sanitizeProfileSelectorEl = S.mode === 'sanitize' ? this.renderSanitizeProfileSelector(tok) : null;
     const sanitizeRulesPanelEl = S.mode === 'sanitize' && S.showSanitizeRules ? this.renderSanitizeRulesPanel(tok) : null;
+
+    // colorized input/output panes, same overlay technique as the Format
+    // tab's source panel (transparent-text <textarea> over a highlighted
+    // <pre>) — see syncLayers(). tokenizeJSON/tokenizeXML aren't memoized
+    // internally, so cache per pane on (text, format, theme, direction).
+    const sanitizeHlFmt = sanitizeRun.format === 'xml' ? 'xml' : 'json';
+    const sanitizeHlLimit = 600000;
+    if (!this._sanitizeInputHlCache || this._sanitizeInputHlCache.text !== S.sanitizeInput || this._sanitizeInputHlCache.fmt !== sanitizeHlFmt || this._sanitizeInputHlCache.theme !== theme || this._sanitizeInputHlCache.dir !== dir) {
+      const el = S.sanitizeInput && S.sanitizeInput.length <= sanitizeHlLimit ? this.highlight(S.sanitizeInput, sanitizeHlFmt, tok) : null;
+      this._sanitizeInputHlCache = { text: S.sanitizeInput, fmt: sanitizeHlFmt, theme, dir, el };
+    }
+    const sanitizeInputHighlightEl = this._sanitizeInputHlCache.el;
+    if (!this._sanitizeOutputHlCache || this._sanitizeOutputHlCache.text !== sanitizeOutput || this._sanitizeOutputHlCache.fmt !== sanitizeHlFmt || this._sanitizeOutputHlCache.theme !== theme || this._sanitizeOutputHlCache.dir !== dir) {
+      const el = sanitizeOutput && sanitizeOutput.length <= sanitizeHlLimit ? this.highlight(sanitizeOutput, sanitizeHlFmt, tok) : null;
+      this._sanitizeOutputHlCache = { text: sanitizeOutput, fmt: sanitizeHlFmt, theme, dir, el };
+    }
+    const sanitizeOutputHighlightEl = this._sanitizeOutputHlCache.el;
+    const sanitizeTaStyle = (hlOn) => ({ position: 'absolute', inset: 0, margin: 0, padding: '12px', font: '400 12.5px/19px ' + tok.fontMono, whiteSpace: 'pre', overflow: 'auto', resize: 'none', border: 0, outline: 'none', background: 'transparent', color: hlOn ? 'transparent' : tok.text, caretColor: tok.accent });
+    const sanitizeHighlightStyle = { position: 'absolute', inset: 0, margin: 0, padding: '12px', font: '400 12.5px/19px ' + tok.fontMono, whiteSpace: 'pre', overflow: 'auto', pointerEvents: 'none' };
+    const sanitizeInputTaStyle = sanitizeTaStyle(!!sanitizeInputHighlightEl);
+    const sanitizeOutputTaStyle = sanitizeTaStyle(!!sanitizeOutputHighlightEl);
     const diffSummary = (diff.add || diff.del) ? '+' + diff.add + '  −' + diff.del : 'Identical';
     const diffSummaryStyle = { font: '600 12px/1 ' + tok.fontMono, color: (diff.add || diff.del) ? tok.text : tok.sem.ok, padding: '0 4px' };
     const formatGridClass = 'rf-format-grid' + (S.fullscreenPanel === 'source' ? ' rf-fs-source' : (S.fullscreenPanel === 'explorer' ? ' rf-fs-explorer' : ''));
@@ -2647,6 +2797,7 @@ class Component extends DCLogic {
       onUpload: (e) => { const f = e.target.files && e.target.files[0]; if (f) this.loadFile(f); e.target.value = ''; },
       onSample: () => { const v = isXml ? this.jsonToXml(JSON.parse(SAMPLE_JSON)) : SAMPLE_JSON; this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0, sourceName: '' }); },
       onCopySource: () => this.copy(S.input, '__src'), copyLabel: S.copied === '__src' ? 'Copied ✓' : 'Copy',
+      onSendSourceToSanitize: () => this.sendToSanitize(S.input),
       onDownload: () => { const blob = new Blob([S.input], { type: isXml ? 'text/xml' : 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'document.' + (isXml ? 'xml' : 'json'); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); },
       onClear: () => this.applyInput('', { collapsed: new Set(), search: '', query: '' }),
       onDragOver: (e) => { e.preventDefault(); if (!S.dragging) this.setState({ dragging: true }); },
@@ -2689,6 +2840,8 @@ class Component extends DCLogic {
       onDiffBeautify: () => { const nb = t => { const p = this.parse(t); return p.ok && p.format === 'json' ? JSON.stringify(p.value, null, 2) : (p.ok && p.format === 'xml' ? this.prettyXml(p.doc) : t); }; this.setState({ diffA: nb(S.diffA), diffB: nb(S.diffB) }); },
       onDiffSwap: () => this.setState({ diffA: S.diffB, diffB: S.diffA }),
       onDiffSample: () => this.setState({ diffA: SAMPLE_DIFF_A, diffB: SAMPLE_DIFF_B }),
+      onSendDiffAToSanitize: () => this.sendToSanitize(S.diffA),
+      onSendDiffBToSanitize: () => this.sendToSanitize(S.diffB),
       diffEl: diff.el, diffSummary, diffSummaryStyle,
 
       // sanitize
@@ -2698,6 +2851,17 @@ class Component extends DCLogic {
         const start = e.target.selectionStart, end = e.target.selectionEnd;
         this.setState({ sanitizeSelection: (start !== end) ? { start, end } : null });
       },
+      sanitizeInputEditorRef: this.sanitizeInputEditorRef,
+      sanitizeInputHighlightRef: this.sanitizeInputHighlightRef,
+      sanitizeInputHighlightEl,
+      sanitizeInputTaStyle,
+      sanitizeOutputEditorRef: this.sanitizeOutputEditorRef,
+      sanitizeOutputHighlightRef: this.sanitizeOutputHighlightRef,
+      sanitizeOutputHighlightEl,
+      sanitizeOutputTaStyle,
+      sanitizeHighlightStyle,
+      onSanitizeInputScroll: (e) => this.syncLayers(this.sanitizeInputEditorRef, this.sanitizeInputHighlightRef, null, e.target),
+      onSanitizeOutputScroll: (e) => this.syncLayers(this.sanitizeOutputEditorRef, this.sanitizeOutputHighlightRef, null, e.target),
       sanitizeHasSelection: !!S.sanitizeSelection,
       onSanitizeMarkRedact: () => this.markSanitizeSelectionRedact(),
       sanitizeMarkBtnStyle: S.sanitizeSelection ? btnStyle : Object.assign({}, btnStyle, { opacity: .45, cursor: 'default' }),
@@ -2749,6 +2913,7 @@ class Component extends DCLogic {
         iconDiffFile: ic.diffFile(),
         iconSettings: ic.settings(),
         iconInfo: ic.info(),
+        iconShield: ic.shield(),
       }; })(window.PAW_ICONS) : {}),
     };
   }

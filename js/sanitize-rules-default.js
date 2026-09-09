@@ -25,6 +25,12 @@
           { id: 'sn-email', label: '*email*', type: 'key', match: '*email*', matchMode: 'wildcard', generator: 'email' },
           { id: 'sn-name', label: '*name*', type: 'key', match: '*name*', matchMode: 'wildcard', generator: 'name' },
           { id: 'sn-user-name', label: 'user_name', type: 'key', match: 'user_name', matchMode: 'wildcard', generator: 'name' },
+          { id: 'sn-number', label: 'number', type: 'key', match: 'number', matchMode: 'wildcard', generator: 'numericId' },
+          { id: 'sn-account', label: 'account', type: 'key', match: 'account', matchMode: 'wildcard', generator: 'companyName' },
+          { id: 'sn-customer-account', label: 'customer_account', type: 'key', match: 'customer_account', matchMode: 'wildcard', generator: 'companyName' },
+          { id: 'sn-company', label: 'company', type: 'key', match: 'company', matchMode: 'wildcard', generator: 'companyName' },
+          { id: 'sn-contact', label: 'contact', type: 'key', match: 'contact', matchMode: 'wildcard', generator: 'name' },
+          { id: 'sn-serial-number', label: 'serial_number', type: 'key', match: 'serial_number', matchMode: 'wildcard', generator: 'generic' },
         ],
         patternRules: [
           { id: 'pat-hex32', label: '32-char hex (sys_id shape)', type: 'pattern', pattern: '\\b[0-9a-fA-F]{32}\\b', generator: 'hex32' },

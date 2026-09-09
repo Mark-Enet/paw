@@ -163,6 +163,7 @@
         <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSample }}">{{ iconFileDoc }}Sample</button>
         <div style="flex:1"></div>
         <button title="Copy" aria-label="Copy" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCopySource }}">{{ iconCopy }}</button>
+        <button title="Send to Sanitize" aria-label="Send to Sanitize" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSendSourceToSanitize }}">{{ iconShield }}</button>
         <button title="Share" aria-label="Share" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onShare }}">{{ iconShare }}</button>
         <button title="Download" aria-label="Download" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDownload }}">{{ iconDownload }}</button>
         <button title="Clear" aria-label="Clear" style="{{ btnGhost }}" style-hover="{{ btnHover }}" onclick="{{ onClear }}">{{ iconTrash }}</button>
@@ -282,6 +283,8 @@
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDiffBeautify }}">{{ iconWand }}Beautify both</button>
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDiffSwap }}">{{ iconSwap }}Swap ⇄</button>
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDiffSample }}">{{ iconDiffFile }}Load sample pair</button>
+      <button title="Send version A to Sanitize" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSendDiffAToSanitize }}">{{ iconShield }}Send A</button>
+      <button title="Send version B to Sanitize" style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSendDiffBToSanitize }}">{{ iconShield }}Send B</button>
       <span style="{{ diffSummaryStyle }}">{{ diffSummary }}</span>
     </div>
     <div class="rf-diff-input-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:0 0 30%;min-height:120px">
@@ -299,7 +302,7 @@
   <sc-if value="{{ isSanitize }}" hint-placeholder-val="{{ false }}">
   <div class="rf-sanitize-wrap" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:14px">
     <div class="rf-sanitize-toolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase">Sanitize for pasting into an AI chat</span>
+      <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase">Redact sensitive values</span>
       <span style="{{ badgeStyle }}">{{ sanitizeFormatBadge }}</span>
       <div style="flex:1"></div>
       {{ sanitizeProfileSelectorEl }}
@@ -321,19 +324,25 @@
 
     <div class="rf-sanitize-grid" style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:14px">
       <section class="rf-sanitize-panel" style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
-        <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8)">
+        <div class="rf-sanitize-panel-header" style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8)">
           <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase">Input</span>
         </div>
-        <textarea class="rf-ta rf-scroll" spellcheck="false" placeholder="Paste a JSON/XML payload or a raw log… then select any span of text and click “Mark selection as always-redact” to force it." value="{{ sanitizeInput }}" onchange="{{ onSanitizeInput }}" onmouseup="{{ onSanitizeMouseUp }}" onkeyup="{{ onSanitizeMouseUp }}" style="flex:1;min-height:0;width:100%;resize:none;border:0;background:var(--panel,#fff);color:var(--text,#1b1e2b);font:400 12.5px/19px var(--font-mono);padding:12px;outline:none"></textarea>
+        <div style="flex:1;min-height:0;position:relative;overflow:hidden">
+          <pre ref="{{ sanitizeInputHighlightRef }}" class="rf-scroll" aria-hidden="true" style="{{ sanitizeHighlightStyle }}">{{ sanitizeInputHighlightEl }}</pre>
+          <textarea ref="{{ sanitizeInputEditorRef }}" class="rf-ta rf-scroll" spellcheck="false" placeholder="Paste a JSON/XML payload or a raw log… then select any span of text and click “Mark selection as always-redact” to force it." value="{{ sanitizeInput }}" onchange="{{ onSanitizeInput }}" onscroll="{{ onSanitizeInputScroll }}" onmouseup="{{ onSanitizeMouseUp }}" onkeyup="{{ onSanitizeMouseUp }}" style="{{ sanitizeInputTaStyle }}"></textarea>
+        </div>
       </section>
 
       <section class="rf-sanitize-panel" style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
-        <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8)">
+        <div class="rf-sanitize-panel-header" style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8)">
           <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase">Sanitized output</span>
           <div style="flex:1"></div>
           <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCopySanitizeOutput }}">{{ iconCopy }}{{ sanitizeCopyLabel }}</button>
         </div>
-        <textarea class="rf-ta rf-scroll" spellcheck="false" readonly value="{{ sanitizeOutput }}" style="flex:1;min-height:0;width:100%;resize:none;border:0;background:var(--panel,#fff);color:var(--text,#1b1e2b);font:400 12.5px/19px var(--font-mono);padding:12px;outline:none"></textarea>
+        <div style="flex:1;min-height:0;position:relative;overflow:hidden">
+          <pre ref="{{ sanitizeOutputHighlightRef }}" class="rf-scroll" aria-hidden="true" style="{{ sanitizeHighlightStyle }}">{{ sanitizeOutputHighlightEl }}</pre>
+          <textarea ref="{{ sanitizeOutputEditorRef }}" class="rf-ta rf-scroll" spellcheck="false" readonly value="{{ sanitizeOutput }}" onscroll="{{ onSanitizeOutputScroll }}" style="{{ sanitizeOutputTaStyle }}"></textarea>
+        </div>
       </section>
     </div>
 
@@ -363,7 +372,7 @@
         <div style="margin:10px 18px 0;padding:8px 10px;border-radius:8px;background:var(--err-weak,rgba(210,59,59,.08));color:var(--err,#d23b3b);font:500 12px/1.4 var(--font-ui)">{{ sanitizeRulesImportError }}</div>
       </sc-if>
       <div class="rf-scroll" style="padding:14px 18px 18px;overflow-y:auto;flex:1;min-height:0">
-        <div style="font:500 11.5px/1.5 var(--font-ui);color:var(--text-faint,#9096ac);margin-bottom:10px">Default rules are git-tracked in the repo; your customizations live in this browser's storage. Edit rules by exporting the ruleset, hand-editing the JSON, and importing it back — an import fully replaces any default profile with the same id.</div>
+        <div style="font:500 11.5px/1.5 var(--font-ui);color:var(--text-faint,#9096ac);margin-bottom:10px">Editing the currently active profile (switch profiles in the toolbar, then reopen Rules). Edits are saved to this browser's storage; ServiceNow and Generic stay available as starting points — "Reset overrides" reverts only this profile. To turn a heavily-customized profile into its own named one, export it, rename its id/name in the JSON, and import it back.</div>
         {{ sanitizeRulesPanelEl }}
       </div>
     </div>
