@@ -18,6 +18,12 @@
      PAW_ICONS factories are available when the component renders. -->
 <script src="js/icons.js"></script>
 
+<!-- Sanitize engine (rule matching, replacement generation, reassembly) and
+     its default rule profiles, loaded before dc-runtime for the same reason
+     as icons.js above. See docs/features/paw-sanitize-design.md. -->
+<script src="js/sanitize-rules-default.js"></script>
+<script src="js/sanitize.js"></script>
+
 <!-- dc-runtime reads the content of this element as the component script.
      The inline loader below fetches js/app.js and injects it here, then
      loads js/dc-runtime.js which boots the component. -->
@@ -68,6 +74,7 @@
     <div class="rf-main-tabs" style="display:flex;padding:3px;background:var(--panel-2,#eef0f7);border-radius:9px;gap:2px">
       <button style="{{ tabFormatStyle }}" onclick="{{ onFormat }}">Format &amp; Explore</button>
       <button style="{{ tabDiffStyle }}" onclick="{{ onDiff }}">Diff</button>
+      <button style="{{ tabSanitizeStyle }}" onclick="{{ onSanitize }}">Sanitize</button>
     </div>
     <div style="display:flex;align-items:center;gap:7px;min-width:210px;max-width:380px;flex:1 1 240px">
       <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;text-transform:uppercase;color:var(--text-faint,#9096ac);white-space:nowrap">Source</span>
@@ -282,6 +289,84 @@
       <textarea class="rf-ta rf-scroll" spellcheck="false" placeholder="Changed / version B…" value="{{ diffB }}" onchange="{{ onDiffBChange }}" style="width:100%;height:100%;resize:none;border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);background:var(--panel,#fff);color:var(--text,#1b1e2b);font:400 12.5px/19px var(--font-mono);padding:12px;outline:none"></textarea>
     </div>
     <div class="rf-scroll" style="flex:1;min-height:0;overflow:auto;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px)">{{ diffEl }}</div>
+  </div>
+  </sc-if>
+
+  <!-- ===== SANITIZE MODE ===== -->
+  <!-- See docs/features/paw-sanitize-design.md. Paste a JSON/XML payload or a
+       raw log; PAW's own parser walks it (reused, not duplicated — see
+       js/sanitize.js) and swaps sensitive values for deterministic fakes. -->
+  <sc-if value="{{ isSanitize }}" hint-placeholder-val="{{ false }}">
+  <div class="rf-sanitize-wrap" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:14px">
+    <div class="rf-sanitize-toolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase">Sanitize for pasting into an AI chat</span>
+      <span style="{{ badgeStyle }}">{{ sanitizeFormatBadge }}</span>
+      <div style="flex:1"></div>
+      {{ sanitizeProfileSelectorEl }}
+      <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSanitizeSample }}">{{ iconFileDoc }}Sample</button>
+      <button style="{{ btnGhost }}" style-hover="{{ btnHover }}" onclick="{{ onSanitizeClear }}">{{ iconTrash }}Clear</button>
+      <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onToggleSanitizeRules }}">{{ iconSettings }}Rules</button>
+    </div>
+
+    <div class="rf-sanitize-toolbar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button style="{{ sanitizeMarkBtnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSanitizeMarkRedact }}">{{ iconPencil }}Mark selection as always-redact</button>
+      <span style="display:inline-flex;align-items:center;gap:6px;font:500 11.5px/1 var(--font-ui);color:var(--text-dim,#565d73)">
+        Save as rule
+        <button style="{{ sanitizeSaveManualToggleStyle }}" onclick="{{ onSanitizeToggleSaveManual }}">{{ sanitizeSaveManualLabel }}</button>
+      </span>
+      <div style="flex:1"></div>
+      <span style="font:500 11.5px/1 var(--font-ui);color:var(--text-faint,#9096ac)">{{ sanitizeMappedCount }} value(s) mapped this session</span>
+      <button style="{{ btnGhost }}" style-hover="{{ btnHover }}" onclick="{{ onClearSanitizeMappings }}">{{ iconTrash }}Clear mappings</button>
+    </div>
+
+    <div class="rf-sanitize-grid" style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <section class="rf-sanitize-panel" style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
+        <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8)">
+          <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase">Input</span>
+        </div>
+        <textarea class="rf-ta rf-scroll" spellcheck="false" placeholder="Paste a JSON/XML payload or a raw log… then select any span of text and click “Mark selection as always-redact” to force it." value="{{ sanitizeInput }}" onchange="{{ onSanitizeInput }}" onmouseup="{{ onSanitizeMouseUp }}" onkeyup="{{ onSanitizeMouseUp }}" style="flex:1;min-height:0;width:100%;resize:none;border:0;background:var(--panel,#fff);color:var(--text,#1b1e2b);font:400 12.5px/19px var(--font-mono);padding:12px;outline:none"></textarea>
+      </section>
+
+      <section class="rf-sanitize-panel" style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
+        <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8)">
+          <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase">Sanitized output</span>
+          <div style="flex:1"></div>
+          <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onCopySanitizeOutput }}">{{ iconCopy }}{{ sanitizeCopyLabel }}</button>
+        </div>
+        <textarea class="rf-ta rf-scroll" spellcheck="false" readonly value="{{ sanitizeOutput }}" style="flex:1;min-height:0;width:100%;resize:none;border:0;background:var(--panel,#fff);color:var(--text,#1b1e2b);font:400 12.5px/19px var(--font-mono);padding:12px;outline:none"></textarea>
+      </section>
+    </div>
+
+    <div class="rf-sanitize-review" style="flex:0 0 auto;max-height:230px;display:flex;flex-direction:column;min-height:120px;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex:0 0 auto">
+        <span style="font:600 11px/1 var(--font-ui);letter-spacing:.04em;color:var(--text-faint,#9096ac);text-transform:uppercase">Review ({{ sanitizeMatchCount }})</span>
+      </div>
+      <div class="rf-scroll" style="flex:1;min-height:0;overflow-y:auto">{{ sanitizeMatchesEl }}</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ showSanitizeRules }}" hint-placeholder-val="{{ false }}">
+  <div onclick="{{ onToggleSanitizeRules }}" style="position:fixed;inset:0;z-index:60;background:rgba(8,10,18,.5);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px)">
+    <div onclick="{{ stop }}" style="width:560px;max-width:92%;max-height:80vh;display:flex;flex-direction:column;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);box-shadow:var(--shadow,none);overflow:hidden;animation:rf-pop .14s ease">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border,#e3e6ef);background:var(--panel-2,#f0f2f8);flex:0 0 auto">
+        <span style="font:700 14px/1 var(--font-ui);color:var(--text,#1b1e2b)">Sanitize rules</span>
+        <button onclick="{{ onToggleSanitizeRules }}" style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border,#e3e6ef);background:var(--elev,#fff);color:var(--text-dim,#565d73);cursor:pointer;font:600 13px/1 var(--font-ui)">✕</button>
+      </div>
+      <div style="padding:6px 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border,#e3e6ef);flex:0 0 auto">
+        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSanitizeExport }}">{{ iconDownload }}Export ruleset</button>
+        <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSanitizeImportClick }}">{{ iconUpload }}Import ruleset</button>
+        <button style="{{ btnGhost }}" style-hover="{{ btnHover }}" onclick="{{ onResetSanitizeRules }}">{{ iconTrash }}Reset overrides</button>
+        <input type="file" ref="{{ sanitizeFileRef }}" onchange="{{ onSanitizeImport }}" accept=".json,application/json" style="display:none">
+      </div>
+      <sc-if value="{{ sanitizeRulesImportError }}" hint-placeholder-val="{{ false }}">
+        <div style="margin:10px 18px 0;padding:8px 10px;border-radius:8px;background:var(--err-weak,rgba(210,59,59,.08));color:var(--err,#d23b3b);font:500 12px/1.4 var(--font-ui)">{{ sanitizeRulesImportError }}</div>
+      </sc-if>
+      <div class="rf-scroll" style="padding:14px 18px 18px;overflow-y:auto;flex:1;min-height:0">
+        <div style="font:500 11.5px/1.5 var(--font-ui);color:var(--text-faint,#9096ac);margin-bottom:10px">Default rules are git-tracked in the repo; your customizations live in this browser's storage. Edit rules by exporting the ruleset, hand-editing the JSON, and importing it back — an import fully replaces any default profile with the same id.</div>
+        {{ sanitizeRulesPanelEl }}
+      </div>
+    </div>
   </div>
   </sc-if>
 

@@ -16,6 +16,15 @@ const SAMPLE_JSON = `{
   "generatedAt": "2026-07-02T09:30:00Z"
 }`;
 
+const SAMPLE_SANITIZE = `{
+  "sys_id": "8a92cfae1b3a4a1084b1e1c4f2b3d4e5",
+  "caller_id": "8a92cfae1b3a4a1084b1e1c4f2b3d4e5",
+  "opened_by": "Jane Doe",
+  "u_phone": "(555) 123-4567",
+  "short_description": "VPN client won't connect",
+  "notes": "Caller reported the issue after contacting jane.doe@example.com from 192.168.1.42."
+}`;
+
 const SAMPLE_DIFF_A = SAMPLE_JSON;
 const SAMPLE_DIFF_B = `{
   "store": {
@@ -159,7 +168,7 @@ function loadPersisted() {
   if (data && typeof data.input === 'string' && data.input.length > MAX_PERSIST) delete data.input;
   if (data && typeof data.diffA === 'string' && data.diffA.length > MAX_PERSIST) delete data.diffA;
   if (data && typeof data.diffB === 'string' && data.diffB.length > MAX_PERSIST) delete data.diffB;
-  if (data.mode !== 'format' && data.mode !== 'diff') delete data.mode;
+  if (data.mode !== 'format' && data.mode !== 'diff' && data.mode !== 'sanitize') delete data.mode;
   if (data.theme !== 'light' && data.theme !== 'dark') delete data.theme;
   if (data.direction !== 'aurora' && data.direction !== 'slate' && data.direction !== 'paper') delete data.direction;
   if (data.view !== 'tree' && data.view !== 'table' && data.view !== 'raw') delete data.view;
@@ -216,6 +225,14 @@ class Component extends DCLogic {
       shareMsg: null,
       appMeta: APP_META_DEFAULT,
       rememberPrefs: sanitizeRememberPrefs(P.rememberPrefs),
+      sanitizeInput: '',
+      sanitizeProfileId: 'servicenow',
+      sanitizeOverrides: {},
+      sanitizeManualRules: [],
+      sanitizeSelection: null,
+      sanitizeSaveManualAsRule: false,
+      showSanitizeRules: false,
+      sanitizeRulesImportError: null,
     };
     this.editorRef = React.createRef();
     this.highlightRef = React.createRef();
@@ -226,6 +243,7 @@ class Component extends DCLogic {
     this.treeScrollRef = React.createRef();
     this.dropRef = React.createRef();
     this.activeMatchRef = React.createRef();
+    this.sanitizeFileRef = React.createRef();
     this._lastMatch = -1;
     this._copyTimer = null;
     this._model = null;
@@ -238,6 +256,8 @@ class Component extends DCLogic {
     this._docTimer = null;
     this._onPageHide = null;
     this._onKey = this.handleKey.bind(this);
+    this._sanitizeMapping = null;
+    this._sanitizeRun = null;
   }
 
   keepPaths(paths) {
@@ -650,15 +670,15 @@ class Component extends DCLogic {
     const name = el.nodeName;
     const children = [];
     for (const a of Array.from(el.attributes || [])) {
-      children.push({ kind: 'leaf', vType: 'attr', key: '@' + a.name, path: path + '/@' + a.name, jpath: jpath + '/@' + a.name, disp: a.value, copyText: a.value });
+      children.push({ kind: 'leaf', vType: 'attr', key: '@' + a.name, path: path + '/@' + a.name, jpath: jpath + '/@' + a.name, disp: a.value, copyText: a.value, el });
     }
     const elems = Array.from(el.children);
     const text = Array.from(el.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim();
     if (elems.length === 0) {
       if ((el.attributes || []).length === 0) {
-        return { kind: 'leaf', vType: this.xmlLeafType(text), key: name, path, jpath, disp: text, copyText: text };
+        return { kind: 'leaf', vType: this.xmlLeafType(text), key: name, path, jpath, disp: text, copyText: text, el };
       }
-      if (text) children.push({ kind: 'leaf', vType: 'text', key: '#text', path: path + '/#text', jpath: jpath + '/text()', disp: text, copyText: text });
+      if (text) children.push({ kind: 'leaf', vType: 'text', key: '#text', path: path + '/#text', jpath: jpath + '/text()', disp: text, copyText: text, el });
     } else {
       const grouped = {};
       const byName = {};
@@ -692,7 +712,7 @@ class Component extends DCLogic {
         }
         grouped[childName] = true;
       });
-      if (text) children.push({ kind: 'leaf', vType: 'text', key: '#text', path: path + '/#text', jpath: jpath + '/text()', disp: text, copyText: text });
+      if (text) children.push({ kind: 'leaf', vType: 'text', key: '#text', path: path + '/#text', jpath: jpath + '/text()', disp: text, copyText: text, el });
     }
     return { kind: 'element', key: name, path, jpath, children, count: children.length, el: el };
   }
@@ -1783,6 +1803,182 @@ class Component extends DCLogic {
     r.readAsText(file);
   }
 
+  // ---------- sanitize ----------
+  // See docs/features/paw-sanitize-design.md. The rule engine/detector live in
+  // js/sanitize.js (window.PAW_SANITIZE) — this section wires that engine to
+  // PAW's own parser (parseJSON/parseXML/rootNode, already defined above) so
+  // the structural walk is reused rather than duplicated.
+
+  getSanitizeRuleset() {
+    return window.PAW_SANITIZE.getMergedRuleset();
+  }
+
+  getSanitizeProfile() {
+    const ruleset = this.getSanitizeRuleset();
+    return ruleset.profiles.find(p => p.id === this.state.sanitizeProfileId) || ruleset.profiles[0] || { id: 'none', name: 'None', keyRules: [], patternRules: [] };
+  }
+
+  getSanitizeMapping() {
+    if (!this._sanitizeMapping) this._sanitizeMapping = window.PAW_SANITIZE.loadMapping();
+    return this._sanitizeMapping;
+  }
+
+  // Memoized on (input, effective ruleset) so match ids stay stable across
+  // re-renders — the review list's toggle/edit overrides are keyed by id.
+  getSanitizeRun() {
+    const S = this.state;
+    const baseProfile = this.getSanitizeProfile();
+    const profile = S.sanitizeManualRules.length
+      ? Object.assign({}, baseProfile, { patternRules: (baseProfile.patternRules || []).concat(S.sanitizeManualRules) })
+      : baseProfile;
+    const rulesetKey = JSON.stringify(profile);
+    if (this._sanitizeRun && this._sanitizeRun._input === S.sanitizeInput && this._sanitizeRun._rulesetKey === rulesetKey) {
+      return this._sanitizeRun;
+    }
+    const mapping = this.getSanitizeMapping();
+    const parseFns = { parseJSON: this.parseJSON.bind(this), parseXML: this.parseXML.bind(this), rootNode: this.rootNode.bind(this) };
+    const run = window.PAW_SANITIZE.analyze(S.sanitizeInput, profile, mapping, parseFns);
+    window.PAW_SANITIZE.saveMapping(mapping);
+    run._input = S.sanitizeInput;
+    run._rulesetKey = rulesetKey;
+    this._sanitizeRun = run;
+    return run;
+  }
+
+  getSanitizeMatches() {
+    const run = this.getSanitizeRun();
+    const overrides = this.state.sanitizeOverrides || {};
+    return run.matches.map(m => overrides[m.id] ? Object.assign({}, m, overrides[m.id]) : m);
+  }
+
+  getSanitizeOutput() {
+    const run = this.getSanitizeRun();
+    if (run.format === 'empty') return '';
+    return window.PAW_SANITIZE.renderOutput(this.state.sanitizeInput, run, this.getSanitizeMatches());
+  }
+
+  setSanitizeInput(text) {
+    this.setState({ sanitizeInput: text, sanitizeOverrides: {}, sanitizeManualRules: [], sanitizeSelection: null });
+  }
+
+  toggleSanitizeMatchExcluded(id) {
+    this.setState(s => {
+      const cur = s.sanitizeOverrides[id] || {};
+      const wasExcluded = cur.excluded != null ? cur.excluded : false;
+      return { sanitizeOverrides: Object.assign({}, s.sanitizeOverrides, { [id]: Object.assign({}, cur, { excluded: !wasExcluded }) }) };
+    });
+  }
+
+  setSanitizeMatchReplacement(id, value) {
+    this.setState(s => ({ sanitizeOverrides: Object.assign({}, s.sanitizeOverrides, { [id]: Object.assign({}, s.sanitizeOverrides[id], { customFake: value }) }) }));
+  }
+
+  markSanitizeSelectionRedact() {
+    const S = this.state;
+    const sel = S.sanitizeSelection;
+    if (!sel || sel.start === sel.end) return;
+    const text = S.sanitizeInput.slice(sel.start, sel.end);
+    if (!text.trim()) return;
+    const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const label = 'Manual: "' + (text.length > 24 ? text.slice(0, 24) + '…' : text) + '"';
+    const rule = { id: 'manual-' + Date.now(), label, type: 'pattern', pattern: escaped, generator: 'generic' };
+    if (S.sanitizeSaveManualAsRule) {
+      const profile = this.getSanitizeProfile();
+      const overrides = window.PAW_SANITIZE.loadRuleOverrides();
+      const existing = overrides.profiles.find(p => p.id === profile.id) || profile;
+      const nextProfile = Object.assign({}, existing, { patternRules: (existing.patternRules || []).concat(rule) });
+      const nextProfiles = overrides.profiles.filter(p => p.id !== profile.id).concat(nextProfile);
+      window.PAW_SANITIZE.saveRuleOverrides({ profiles: nextProfiles });
+    }
+    this.setState(s => ({ sanitizeManualRules: s.sanitizeManualRules.concat(rule), sanitizeSelection: null }));
+  }
+
+  onClearSanitizeMappings() {
+    window.PAW_SANITIZE.clearMapping();
+    this._sanitizeMapping = window.PAW_SANITIZE.createMapping();
+    this._sanitizeRun = null;
+    this.setState({ sanitizeOverrides: {} });
+  }
+
+  exportSanitizeRuleset() {
+    const merged = this.getSanitizeRuleset();
+    const blob = new Blob([JSON.stringify(merged, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'paw-sanitize-rules.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  importSanitizeRulesetFile(file) {
+    const r = new FileReader();
+    r.onload = () => {
+      const res = window.PAW_SANITIZE.importRulesetText(String(r.result));
+      if (res.ok) {
+        window.PAW_SANITIZE.saveRuleOverrides(res.ruleset);
+        this._sanitizeRun = null;
+        this.setState({ sanitizeRulesImportError: null });
+      } else {
+        this.setState({ sanitizeRulesImportError: res.error });
+      }
+    };
+    r.readAsText(file);
+  }
+
+  resetSanitizeRuleOverrides() {
+    window.PAW_SANITIZE.clearRuleOverrides();
+    this._sanitizeRun = null;
+    this.setState({ sanitizeOverrides: {}, sanitizeRulesImportError: null });
+  }
+
+  renderSanitizeMatches(matches, tok) {
+    if (!matches.length) {
+      return h('div', { style: { padding: '16px', color: tok.textFaint, font: '500 12px/1.4 ' + tok.fontUi } }, 'No sensitive values detected yet — paste something above, or highlight text and mark it for redaction.');
+    }
+    return h('div', { style: { display: 'flex', flexDirection: 'column' } }, matches.map((m) => {
+      const excluded = !!m.excluded;
+      const preview = m.value.length > 40 ? m.value.slice(0, 18) + '…' + m.value.slice(-6) : m.value;
+      const replacement = m.customFake != null && m.customFake !== '' ? m.customFake : m.fake;
+      return h('div', { key: m.id, style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', borderBottom: '1px solid ' + tok.border, opacity: excluded ? .55 : 1 } },
+        h('button', {
+          title: excluded ? 'Excluded — click to include' : 'Included — click to exclude',
+          onClick: () => this.toggleSanitizeMatchExcluded(m.id),
+          style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', border: '1px solid ' + tok.border, borderRadius: '6px', background: tok.elev, color: tok.textDim, cursor: 'pointer', flex: '0 0 auto', padding: 0 },
+        }, window.PAW_ICONS ? (excluded ? window.PAW_ICONS.eyeOff() : window.PAW_ICONS.eye()) : null),
+        h('span', { title: m.ruleLabel, style: { font: '600 11px/1 ' + tok.fontUi, color: tok.textFaint, textTransform: 'uppercase', letterSpacing: '.03em', flex: '0 0 auto', width: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, m.ruleLabel || 'Rule'),
+        h('span', { title: m.value, style: { font: '500 12px/1 ' + tok.fontMono, color: tok.textDim, flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, preview),
+        h('span', { style: { color: tok.textFaint, flex: '0 0 auto' } }, '→'),
+        h('input', {
+          value: replacement, disabled: excluded,
+          onChange: (e) => this.setSanitizeMatchReplacement(m.id, e.target.value),
+          style: { flex: '1 1 160px', minWidth: 0, height: '26px', border: '1px solid ' + tok.border, borderRadius: '6px', background: excluded ? tok.panel2 : tok.elev, color: tok.text, font: '500 12px/1 ' + tok.fontMono, padding: '0 8px' },
+        })
+      );
+    }));
+  }
+
+  renderSanitizeProfileSelector(tok) {
+    const ruleset = this.getSanitizeRuleset();
+    const activeId = this.state.sanitizeProfileId;
+    return h('div', { style: { display: 'flex', padding: '3px', background: tok.panel2, borderRadius: '9px', gap: '2px' } }, ruleset.profiles.map((p) => h('button', {
+      key: p.id,
+      onClick: () => this.setState({ sanitizeProfileId: p.id, sanitizeOverrides: {}, sanitizeManualRules: [] }),
+      style: { height: '26px', padding: '0 11px', border: 'none', borderRadius: '6px', cursor: 'pointer', font: '700 10px/1 ' + tok.fontUi, letterSpacing: '.04em', textTransform: 'uppercase', background: p.id === activeId ? tok.accentWeak : tok.panel2, color: p.id === activeId ? tok.accent : tok.textDim },
+    }, p.name)));
+  }
+
+  renderSanitizeRulesPanel(tok) {
+    const ruleset = this.getSanitizeRuleset();
+    const ruleRow = (r) => h('div', { key: r.id, style: { font: '500 12px/1.7 ' + tok.fontMono, color: tok.textDim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, (r.match || r.label || r.id) + '  →  ' + r.generator);
+    return h('div', {}, ruleset.profiles.map((p) => h('div', { key: p.id, style: { marginBottom: '16px' } },
+      h('div', { style: { font: '700 13px/1 ' + tok.fontUi, color: tok.text, marginBottom: '6px' } }, p.name),
+      h('div', { style: { font: '600 10.5px/1 ' + tok.fontUi, color: tok.textFaint, textTransform: 'uppercase', letterSpacing: '.04em', margin: '8px 0 3px' } }, 'Key rules'),
+      (p.keyRules || []).map(ruleRow),
+      h('div', { style: { font: '600 10.5px/1 ' + tok.fontUi, color: tok.textFaint, textTransform: 'uppercase', letterSpacing: '.04em', margin: '10px 0 3px' } }, 'Pattern rules'),
+      (p.patternRules || []).map(ruleRow)
+    )));
+  }
+
   buildModel() {
     const input = this.state.docInput;
     if (this._model && this._model.input === input) return this._model;
@@ -2338,6 +2534,12 @@ class Component extends DCLogic {
 
     // diff
     const diff = S.mode === 'diff' ? this.renderDiff(tok) : { el: null, add: 0, del: 0 };
+    const sanitizeRun = S.mode === 'sanitize' ? this.getSanitizeRun() : { format: 'empty', matches: [] };
+    const sanitizeMatches = S.mode === 'sanitize' ? this.getSanitizeMatches() : [];
+    const sanitizeOutput = S.mode === 'sanitize' ? this.getSanitizeOutput() : '';
+    const sanitizeMatchesEl = S.mode === 'sanitize' ? this.renderSanitizeMatches(sanitizeMatches, tok) : null;
+    const sanitizeProfileSelectorEl = S.mode === 'sanitize' ? this.renderSanitizeProfileSelector(tok) : null;
+    const sanitizeRulesPanelEl = S.mode === 'sanitize' && S.showSanitizeRules ? this.renderSanitizeRulesPanel(tok) : null;
     const diffSummary = (diff.add || diff.del) ? '+' + diff.add + '  −' + diff.del : 'Identical';
     const diffSummaryStyle = { font: '600 12px/1 ' + tok.fontMono, color: (diff.add || diff.del) ? tok.text : tok.sem.ok, padding: '0 4px' };
     const formatGridClass = 'rf-format-grid' + (S.fullscreenPanel === 'source' ? ' rf-fs-source' : (S.fullscreenPanel === 'explorer' ? ' rf-fs-explorer' : ''));
@@ -2357,9 +2559,9 @@ class Component extends DCLogic {
 
     return {
       themeVars,
-      isFormat: S.mode === 'format', isDiff: S.mode === 'diff',
-      tabFormatStyle: seg(S.mode === 'format'), tabDiffStyle: seg(S.mode === 'diff'),
-      onFormat: () => this.setState({ mode: 'format' }), onDiff: () => this.setState({ mode: 'diff' }),
+      isFormat: S.mode === 'format', isDiff: S.mode === 'diff', isSanitize: S.mode === 'sanitize',
+      tabFormatStyle: seg(S.mode === 'format'), tabDiffStyle: seg(S.mode === 'diff'), tabSanitizeStyle: seg(S.mode === 'sanitize'),
+      onFormat: () => this.setState({ mode: 'format' }), onDiff: () => this.setState({ mode: 'diff' }), onSanitize: () => this.setState({ mode: 'sanitize' }),
       dirAuroraStyle: Object.assign({}, seg(dir === 'aurora'), { color: styleTone.aurora }),
       dirSlateStyle: Object.assign({}, seg(dir === 'slate'), { color: styleTone.slate }),
       dirPaperStyle: Object.assign({}, seg(dir === 'paper'), { color: styleTone.paper }),
@@ -2488,6 +2690,40 @@ class Component extends DCLogic {
       onDiffSwap: () => this.setState({ diffA: S.diffB, diffB: S.diffA }),
       onDiffSample: () => this.setState({ diffA: SAMPLE_DIFF_A, diffB: SAMPLE_DIFF_B }),
       diffEl: diff.el, diffSummary, diffSummaryStyle,
+
+      // sanitize
+      sanitizeInput: S.sanitizeInput,
+      onSanitizeInput: (e) => this.setSanitizeInput(e.target.value),
+      onSanitizeMouseUp: (e) => {
+        const start = e.target.selectionStart, end = e.target.selectionEnd;
+        this.setState({ sanitizeSelection: (start !== end) ? { start, end } : null });
+      },
+      sanitizeHasSelection: !!S.sanitizeSelection,
+      onSanitizeMarkRedact: () => this.markSanitizeSelectionRedact(),
+      sanitizeMarkBtnStyle: S.sanitizeSelection ? btnStyle : Object.assign({}, btnStyle, { opacity: .45, cursor: 'default' }),
+      sanitizeSaveManualToggleStyle: rememberToggleStyle(S.sanitizeSaveManualAsRule),
+      sanitizeSaveManualLabel: S.sanitizeSaveManualAsRule ? 'On' : 'Off',
+      onSanitizeToggleSaveManual: () => this.setState(s => ({ sanitizeSaveManualAsRule: !s.sanitizeSaveManualAsRule })),
+      onSanitizeSample: () => this.setSanitizeInput(SAMPLE_SANITIZE),
+      onSanitizeClear: () => this.setSanitizeInput(''),
+      sanitizeProfileSelectorEl,
+      sanitizeOutput,
+      onCopySanitizeOutput: () => this.copy(sanitizeOutput, '__sanitize'),
+      sanitizeCopyLabel: S.copied === '__sanitize' ? 'Copied ✓' : 'Copy',
+      sanitizeMatchesEl,
+      sanitizeMatchCount: sanitizeMatches.length,
+      sanitizeMappedCount: this.getSanitizeMapping().map.size,
+      onClearSanitizeMappings: () => this.onClearSanitizeMappings(),
+      showSanitizeRules: S.showSanitizeRules,
+      onToggleSanitizeRules: () => this.setState(s => ({ showSanitizeRules: !s.showSanitizeRules })),
+      sanitizeRulesPanelEl,
+      sanitizeFileRef: this.sanitizeFileRef,
+      onSanitizeImportClick: () => this.sanitizeFileRef.current && this.sanitizeFileRef.current.click(),
+      onSanitizeImport: (e) => { const f = e.target.files && e.target.files[0]; if (f) this.importSanitizeRulesetFile(f); e.target.value = ''; },
+      onSanitizeExport: () => this.exportSanitizeRuleset(),
+      onResetSanitizeRules: () => this.resetSanitizeRuleOverrides(),
+      sanitizeRulesImportError: S.sanitizeRulesImportError,
+      sanitizeFormatBadge: sanitizeRun.format === 'empty' ? 'EMPTY' : String(sanitizeRun.format).toUpperCase(),
 
       // Icon React elements (from js/icons.js via window.PAW_ICONS)
       ...(window.PAW_ICONS ? (function(ic) { return {
