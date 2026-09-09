@@ -258,5 +258,51 @@
         13, 13, 'vertical-align:text-bottom;margin-right:3px'
       );
     },
+
+    // Eye / visible  (13×13, inline style for alignment)
+    eye: function () {
+      return ic(
+        '<path d="M1.2 7S3.5 3 7 3s5.8 4 5.8 4-2.3 4-5.8 4-5.8-4-5.8-4z"/>' +
+        '<circle cx="7" cy="7" r="1.8"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
+
+    // Eye-off / hidden  (13×13, inline style for alignment)
+    eyeOff: function () {
+      return ic(
+        '<path d="M1.2 7S3.5 3 7 3s5.8 4 5.8 4-2.3 4-5.8 4-5.8-4-5.8-4z"/>' +
+        '<circle cx="7" cy="7" r="1.8"/>' +
+        '<line x1="1.5" y1="12.5" x2="12.5" y2="1.5"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
+
+    // Shield / sanitize  (13×13, inline style for alignment)
+    shield: function () {
+      return ic(
+        '<path d="M7 1.6l4.6 1.7v3.6c0 3-1.9 5.2-4.6 6.1-2.7-.9-4.6-3.1-4.6-6.1V3.3z"/>' +
+        '<path d="M4.9 7l1.6 1.6 2.6-3"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
+
+    // Lock / scroll-locked  (13×13, inline style for alignment)
+    lock: function () {
+      return ic(
+        '<rect x="3" y="6.5" width="8" height="5.5" rx="1"/>' +
+        '<path d="M4.5 6.5V4.8a2.5 2.5 0 015 0v1.7"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
+
+    // Unlock / scroll-unlocked  (13×13, inline style for alignment)
+    unlock: function () {
+      return ic(
+        '<rect x="3" y="6.5" width="8" height="5.5" rx="1"/>' +
+        '<path d="M4.5 6.5V4.8a2.5 2.5 0 014.9-.6"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
   };
 })();
