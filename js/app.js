@@ -42,6 +42,16 @@ const SAMPLE_DIFF_B = `{
   "generatedAt": "2026-07-02T14:05:00Z"
 }`;
 
+// Cross-mode hand-off destinations (Round 4). Dig/Bury are single-slot; Spot
+// has two (A/B), so it needs two separate target keys even though it's one
+// mode. A panel's Send-to menu offers every target whose mode isn't its own.
+const HANDOFF_TARGETS = {
+  dig: { label: 'Dig', mode: 'format' },
+  spotA: { label: 'Spot · Version A', mode: 'diff' },
+  spotB: { label: 'Spot · Version B', mode: 'diff' },
+  bury: { label: 'Bury', mode: 'sanitize' },
+};
+
 function tokens(dir, theme) {
   const dark = theme === 'dark';
   const syn = dark
@@ -176,6 +186,8 @@ function loadPersisted() {
   if (data.explorerMode !== 'search' && data.explorerMode !== 'query') delete data.explorerMode;
   if (data.indent !== '2' && data.indent !== '4' && data.indent !== 'tab') delete data.indent;
   if (data.fullscreenPanel !== 'source' && data.fullscreenPanel !== 'explorer') delete data.fullscreenPanel;
+  if (data.sanitizeFullscreenPanel !== 'input' && data.sanitizeFullscreenPanel !== 'output') delete data.sanitizeFullscreenPanel;
+  if (data.diffFullscreenPanel !== 'a' && data.diffFullscreenPanel !== 'b' && data.diffFullscreenPanel !== 'result') delete data.diffFullscreenPanel;
   if (data.tableMode !== 'path' && data.tableMode !== 'record') delete data.tableMode;
   if (typeof data.tableSourcePath !== 'string') delete data.tableSourcePath;
   if (typeof data.sourceName !== 'string') delete data.sourceName;
@@ -219,6 +231,8 @@ class Component extends DCLogic {
       scrollTop: 0,
       viewportH: 600,
       fullscreenPanel: P.fullscreenPanel || null,
+      sanitizeFullscreenPanel: P.sanitizeFullscreenPanel || null,
+      diffFullscreenPanel: P.diffFullscreenPanel || null,
       showHelp: false,
       showAbout: false,
       showSettings: false,
@@ -239,6 +253,8 @@ class Component extends DCLogic {
       sanitizeRuleError: null,
       sanitizeExportPromptOpen: false,
       sanitizeExportName: '',
+      sendMenuOpen: null,
+      handoffConfirm: null,
     };
     this.editorRef = React.createRef();
     this.highlightRef = React.createRef();
@@ -254,6 +270,7 @@ class Component extends DCLogic {
     this.sanitizeInputHighlightRef = React.createRef();
     this.sanitizeOutputEditorRef = React.createRef();
     this.sanitizeOutputHighlightRef = React.createRef();
+    this.diffResultRef = React.createRef();
     this._lastMatch = -1;
     this._copyTimer = null;
     this._model = null;
@@ -314,6 +331,7 @@ class Component extends DCLogic {
       if (beautifyWrap && !beautifyWrap.contains(e.target) && this.state.showBeautifyMenu) this.setState({ showBeautifyMenu: false });
       const settingsWrap = this.settingsMenuRef.current;
       if (settingsWrap && !settingsWrap.contains(e.target) && this.state.showSettings) this.setState({ showSettings: false });
+      if (this.state.sendMenuOpen && !(e.target.closest && e.target.closest('.rf-send-menu-wrap'))) this.setState({ sendMenuOpen: null });
     };
     document.addEventListener('pointerdown', this._onDocClick, true);
     this._onResize = () => { const b = this.treeScrollRef.current; if (b && b.clientHeight) this.setState({ viewportH: b.clientHeight }); };
@@ -351,7 +369,7 @@ class Component extends DCLogic {
       prevState.rememberPrefs.explorer !== this.state.rememberPrefs.explorer ||
       prevState.rememberPrefs.find !== this.state.rememberPrefs.find
     );
-    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.sourceName !== this.state.sourceName || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.sanitizeScrollLock !== this.state.sanitizeScrollLock || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
+    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.sourceName !== this.state.sourceName || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.sanitizeScrollLock !== this.state.sanitizeScrollLock || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.sanitizeFullscreenPanel !== this.state.sanitizeFullscreenPanel || prevState.diffFullscreenPanel !== this.state.diffFullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
       this.schedulePersist();
     }
     this.syncEditorLayers();
@@ -374,6 +392,8 @@ class Component extends DCLogic {
     if (remember.workspace) {
       data.mode = S.mode;
       data.fullscreenPanel = S.fullscreenPanel;
+      data.sanitizeFullscreenPanel = S.sanitizeFullscreenPanel;
+      data.diffFullscreenPanel = S.diffFullscreenPanel;
     }
     if (remember.explorer) {
       data.view = S.view;
@@ -454,6 +474,10 @@ class Component extends DCLogic {
     }
     if (!typing) {
       if (k === 'Escape' && this.state.fullscreenPanel) this.setState({ fullscreenPanel: null });
+      else if (k === 'Escape' && this.state.sanitizeFullscreenPanel) this.setState({ sanitizeFullscreenPanel: null });
+      else if (k === 'Escape' && this.state.diffFullscreenPanel) this.setState({ diffFullscreenPanel: null });
+      else if (k === 'Escape' && this.state.handoffConfirm) this.setState({ handoffConfirm: null });
+      else if (k === 'Escape' && this.state.sendMenuOpen) this.setState({ sendMenuOpen: null });
       else if (k === '?') this.setState(s => ({ showHelp: !s.showHelp, showAbout: false, showSettings: false }));
       else if (k === 'Escape' && this.state.showBeautifyMenu) this.setState({ showBeautifyMenu: false });
       else if (k === 'Escape' && this.state.showSettings) this.setState({ showSettings: false });
@@ -1828,7 +1852,36 @@ class Component extends DCLogic {
     const head = h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', position: 'sticky', top: 0, background: tok.panel2, borderBottom: '1px solid ' + tok.border, font: '600 11px/1 ' + tok.fontUi, color: tok.textFaint, letterSpacing: '.04em', textTransform: 'uppercase', zIndex: 1 } },
       h('div', { style: { padding: '8px 12px', borderRight: '1px solid ' + tok.border } }, 'Version A'),
       h('div', { style: { padding: '8px 12px' } }, 'Version B'));
-    return { el: h('div', { style: { font: '400 12.5px/19px ' + tok.fontMono, minWidth: 0 } }, head, body), add, del };
+    return { el: h('div', { style: { font: '400 12.5px/19px ' + tok.fontMono, minWidth: 0 } }, head, body), add, del, rows };
+  }
+
+  // A thin ruler alongside the diff result showing at a glance where the
+  // changes are, without scrolling — one tick per changed row, positioned
+  // by its fraction of the total row count. For very large diffs, thin the
+  // ticks by sampling rather than rendering one per changed row.
+  renderDiffMinimap(rows, tok) {
+    if (!rows || !rows.length) return null;
+    const total = rows.length;
+    let changed = [];
+    rows.forEach((r, i) => { if (r.t !== 'eq') changed.push({ i, t: r.t }); });
+    if (!changed.length) return null;
+    const MAX_TICKS = 500;
+    if (changed.length > MAX_TICKS) {
+      const step = Math.ceil(changed.length / MAX_TICKS);
+      changed = changed.filter((_, k) => k % step === 0);
+    }
+    const jumpTo = (rowIndex) => {
+      const box = this.diffResultRef.current;
+      if (!box) return;
+      box.scrollTop = (rowIndex / total) * box.scrollHeight;
+    };
+    const ticks = changed.map((c) => h('div', {
+      key: c.i,
+      title: (c.t === 'add' ? 'Added' : 'Removed') + ' — line ' + (c.i + 1),
+      onClick: () => jumpTo(c.i),
+      style: { position: 'absolute', left: 0, right: 0, top: (c.i / total * 100) + '%', height: '2px', background: c.t === 'add' ? tok.sem.ok : tok.sem.err, cursor: 'pointer' },
+    }));
+    return h('div', { title: 'Change overview — click to jump', style: { position: 'absolute', top: 0, right: 0, bottom: 0, width: '10px', background: tok.panel2, borderLeft: '1px solid ' + tok.border } }, ticks);
   }
 
   // ---------- handlers ----------
@@ -1896,9 +1949,70 @@ class Component extends DCLogic {
     this.setState({ sanitizeInput: text, sanitizeOverrides: {}, sanitizeManualRules: [], sanitizeSelection: null });
   }
 
-  // Used by the "Send to Sanitize" buttons on the Explore and Diff tabs.
-  sendToSanitize(text) {
-    this.setState({ mode: 'sanitize', sanitizeInput: text, sanitizeOverrides: {}, sanitizeManualRules: [], sanitizeSelection: null });
+  // ---------- cross-mode hand-off (Round 4) ----------
+
+  handoffHasContent(key) {
+    const S = this.state;
+    if (key === 'dig') return !!S.input.trim();
+    if (key === 'spotA') return !!S.diffA.trim();
+    if (key === 'spotB') return !!S.diffB.trim();
+    if (key === 'bury') return !!S.sanitizeInput.trim();
+    return false;
+  }
+
+  performHandoff(key, text) {
+    const target = HANDOFF_TARGETS[key];
+    if (!target) return;
+    if (key === 'dig') this.applyInput(text, { collapsed: new Set(), search: '', query: '', matchIndex: 0, sourceName: '' });
+    else if (key === 'spotA') this.setState({ diffA: text });
+    else if (key === 'spotB') this.setState({ diffB: text });
+    else if (key === 'bury') this.setSanitizeInput(text);
+    this.setState({ mode: target.mode, sendMenuOpen: null });
+  }
+
+  // If the destination already has content, ask before overwriting it
+  // (see the confirm-replace modal in index.html); otherwise just apply.
+  requestHandoff(key, text) {
+    if (this.handoffHasContent(key)) {
+      this.setState({ handoffConfirm: { key, text, label: HANDOFF_TARGETS[key].label }, sendMenuOpen: null });
+    } else {
+      this.performHandoff(key, text);
+    }
+  }
+
+  confirmHandoff() {
+    const pending = this.state.handoffConfirm;
+    if (!pending) return;
+    this.performHandoff(pending.key, pending.text);
+    this.setState({ handoffConfirm: null });
+  }
+
+  cancelHandoff() {
+    this.setState({ handoffConfirm: null });
+  }
+
+  // One "Send to…" button + popover per qualifying panel, listing every
+  // hand-off target whose mode isn't `sourceMode` (a panel never offers its
+  // own current mode as a destination).
+  renderSendToMenu(sourceKey, sourceMode, text, tok) {
+    const isOpen = this.state.sendMenuOpen === sourceKey;
+    const targets = Object.keys(HANDOFF_TARGETS).filter((k) => HANDOFF_TARGETS[k].mode !== sourceMode);
+    const triggerStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '30px', height: '30px', padding: 0, border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, background: tok.elev, color: tok.textDim, cursor: 'pointer' };
+    const itemStyle = { display: 'block', width: 'auto', minWidth: '160px', height: '30px', padding: '0 10px', border: 0, borderBottom: '1px solid ' + tok.border, background: 'transparent', color: tok.text, font: '500 12px/1 ' + tok.fontUi, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' };
+    const trigger = h('button', {
+      key: 'trigger', title: 'Send to…', 'aria-label': 'Send to…',
+      onClick: (e) => { e.stopPropagation(); this.setState((s) => ({ sendMenuOpen: s.sendMenuOpen === sourceKey ? null : sourceKey })); },
+      style: triggerStyle,
+    }, window.PAW_ICONS ? window.PAW_ICONS.sendTo() : null);
+    const menu = isOpen ? h('div', {
+      key: 'menu',
+      style: { position: 'absolute', top: '34px', right: 0, display: 'inline-flex', flexDirection: 'column', alignItems: 'stretch', zIndex: 20, background: tok.panel, border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, boxShadow: tok.shadow, overflow: 'hidden' },
+    }, targets.map((k) => h('button', {
+      key: k,
+      onClick: () => this.requestHandoff(k, text),
+      style: itemStyle,
+    }, 'Send to ' + HANDOFF_TARGETS[k].label))) : null;
+    return h('div', { className: 'rf-send-menu-wrap', style: { position: 'relative', display: 'inline-flex' } }, trigger, menu);
   }
 
   toggleSanitizeMatchExcluded(id) {
@@ -2561,6 +2675,8 @@ class Component extends DCLogic {
     const explorerCopyPayloadText = queryFilterActive
       ? queryPayloadText
       : (searchFilterActive ? explorerPayloadText : (parsed.empty ? '' : S.input));
+    const sourceSendMenuEl = S.mode === 'format' ? this.renderSendToMenu('source', 'format', S.input, tok) : null;
+    const explorerSendMenuEl = S.mode === 'format' ? this.renderSendToMenu('explorer', 'format', explorerCopyPayloadText, tok) : null;
     const activePath = (S.explorerMode === 'query' && queryMatchPaths.size)
       ? Array.from(queryMatchPaths)[0]
       : ((S.view === 'raw' || activeIndex < 0) ? null : matches[activeIndex]);
@@ -2740,8 +2856,20 @@ class Component extends DCLogic {
     const sanitizeHighlightStyle = { position: 'absolute', inset: 0, margin: 0, padding: '12px', font: '400 12.5px/19px ' + tok.fontMono, whiteSpace: 'pre', overflow: 'auto', pointerEvents: 'none' };
     const sanitizeInputTaStyle = sanitizeTaStyle(!!sanitizeInputHighlightEl);
     const sanitizeOutputTaStyle = sanitizeTaStyle(!!sanitizeOutputHighlightEl);
+    const sanitizeGridClass = 'rf-sanitize-grid' + (S.sanitizeFullscreenPanel === 'input' ? ' rf-fs-input' : (S.sanitizeFullscreenPanel === 'output' ? ' rf-fs-output' : ''));
+    const sanitizeInputPanelClass = 'rf-sanitize-panel rf-sanitize-panel-input' + (S.sanitizeFullscreenPanel === 'input' ? ' rf-panel-fullscreen' : '');
+    const sanitizeOutputPanelClass = 'rf-sanitize-panel rf-sanitize-panel-output' + (S.sanitizeFullscreenPanel === 'output' ? ' rf-panel-fullscreen' : '');
+    const sanitizeInputSendMenuEl = S.mode === 'sanitize' ? this.renderSendToMenu('sanitizeInput', 'sanitize', S.sanitizeInput, tok) : null;
+    const sanitizeOutputSendMenuEl = S.mode === 'sanitize' ? this.renderSendToMenu('sanitizeOutput', 'sanitize', sanitizeOutput, tok) : null;
     const diffSummary = (diff.add || diff.del) ? '+' + diff.add + '  −' + diff.del : 'Identical';
     const diffSummaryStyle = { font: '600 12px/1 ' + tok.fontMono, color: (diff.add || diff.del) ? tok.text : tok.sem.ok, padding: '0 4px' };
+    const diffWrapClass = 'rf-diff-wrap' + (S.diffFullscreenPanel === 'a' ? ' rf-fs-a' : (S.diffFullscreenPanel === 'b' ? ' rf-fs-b' : (S.diffFullscreenPanel === 'result' ? ' rf-fs-result' : '')));
+    const diffPanelAClass = 'rf-diff-panel-a' + (S.diffFullscreenPanel === 'a' ? ' rf-panel-fullscreen' : '');
+    const diffPanelBClass = 'rf-diff-panel-b' + (S.diffFullscreenPanel === 'b' ? ' rf-panel-fullscreen' : '');
+    const diffPanelResultClass = 'rf-diff-panel-result' + (S.diffFullscreenPanel === 'result' ? ' rf-panel-fullscreen' : '');
+    const diffMinimapEl = S.mode === 'diff' ? this.renderDiffMinimap(diff.rows, tok) : null;
+    const diffASendMenuEl = S.mode === 'diff' ? this.renderSendToMenu('diffA', 'diff', S.diffA, tok) : null;
+    const diffBSendMenuEl = S.mode === 'diff' ? this.renderSendToMenu('diffB', 'diff', S.diffB, tok) : null;
     const formatGridClass = 'rf-format-grid' + (S.fullscreenPanel === 'source' ? ' rf-fs-source' : (S.fullscreenPanel === 'explorer' ? ' rf-fs-explorer' : ''));
     const sourcePanelClass = 'rf-panel-source' + (S.fullscreenPanel === 'source' ? ' rf-panel-fullscreen' : '');
     const explorerPanelClass = 'rf-panel-explorer' + (S.fullscreenPanel === 'explorer' ? ' rf-panel-fullscreen' : '');
@@ -2804,6 +2932,7 @@ class Component extends DCLogic {
       onSourceFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'source' ? null : 'source' })),
       onExplorerFullscreen: () => this.setState(s => ({ fullscreenPanel: s.fullscreenPanel === 'explorer' ? null : 'explorer' })),
       onCopyExplorer: () => this.copy(explorerCopyPayloadText, '__explorer'),
+      explorerSendMenuEl,
       explorerCopyTitle: (searchFilterActive || queryFilterActive) ? 'Copy filtered payload' : 'Copy payload',
       explorerCopyStyle: Object.assign({}, btnStyle, { width: '30px', minWidth: '30px', padding: '0', justifyContent: 'center' }),
       explorerActionsStyle: { display: 'inline-flex', alignItems: 'center', gap: '7px', marginLeft: 'auto', flex: '0 0 auto', flexWrap: 'nowrap' },
@@ -2847,7 +2976,7 @@ class Component extends DCLogic {
       onUpload: (e) => { const f = e.target.files && e.target.files[0]; if (f) this.loadFile(f); e.target.value = ''; },
       onSample: () => { const v = isXml ? this.jsonToXml(JSON.parse(SAMPLE_JSON)) : SAMPLE_JSON; this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0, sourceName: '' }); },
       onCopySource: () => this.copy(S.input, '__src'), copyLabel: S.copied === '__src' ? 'Copied ✓' : 'Copy',
-      onSendSourceToSanitize: () => this.sendToSanitize(S.input),
+      sourceSendMenuEl,
       onDownload: () => { const blob = new Blob([S.input], { type: isXml ? 'text/xml' : 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'document.' + (isXml ? 'xml' : 'json'); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); },
       onClear: () => this.applyInput('', { collapsed: new Set(), search: '', query: '' }),
       onDragOver: (e) => { e.preventDefault(); if (!S.dragging) this.setState({ dragging: true }); },
@@ -2858,6 +2987,10 @@ class Component extends DCLogic {
       onTreeScroll: (e) => { const top = e.target.scrollTop; if (this._raf) return; this._raf = requestAnimationFrame(() => { this._raf = null; this.setState({ scrollTop: top }); }); },
       onShare: () => this.doShare(), shareLabel: S.shareMsg || 'Share link',
       onToggleHelp: () => this.setState(s => ({ showHelp: !s.showHelp, showAbout: false, showSettings: false })), showHelp: S.showHelp, stop: (e) => e.stopPropagation(),
+      handoffConfirmOpen: !!S.handoffConfirm,
+      handoffConfirmLabel: S.handoffConfirm ? S.handoffConfirm.label : '',
+      onConfirmHandoff: () => this.confirmHandoff(),
+      onCancelHandoff: () => this.cancelHandoff(),
 
       statusBarStyle: { display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', borderTop: '1px solid ' + tok.border, background: hasError ? tok.sem.errW : (parsed.ok ? tok.sem.okW : tok.panel2) },
       statusText, statusColor, statusDot, statusDotHalo, hasError, errorLine,
@@ -2890,9 +3023,20 @@ class Component extends DCLogic {
       onDiffBeautify: () => { const nb = t => { const p = this.parse(t); return p.ok && p.format === 'json' ? JSON.stringify(p.value, null, 2) : (p.ok && p.format === 'xml' ? this.prettyXml(p.doc) : t); }; this.setState({ diffA: nb(S.diffA), diffB: nb(S.diffB) }); },
       onDiffSwap: () => this.setState({ diffA: S.diffB, diffB: S.diffA }),
       onDiffSample: () => this.setState({ diffA: SAMPLE_DIFF_A, diffB: SAMPLE_DIFF_B }),
-      onSendDiffAToSanitize: () => this.sendToSanitize(S.diffA),
-      onSendDiffBToSanitize: () => this.sendToSanitize(S.diffB),
       diffEl: diff.el, diffSummary, diffSummaryStyle,
+      diffWrapClass, diffPanelAClass, diffPanelBClass, diffPanelResultClass,
+      diffResultRef: this.diffResultRef,
+      diffMinimapEl,
+      diffASendMenuEl, diffBSendMenuEl,
+      diffAFullscreenLabel: S.diffFullscreenPanel === 'a' ? 'Exit fullscreen' : 'Fullscreen',
+      diffBFullscreenLabel: S.diffFullscreenPanel === 'b' ? 'Exit fullscreen' : 'Fullscreen',
+      diffResultFullscreenLabel: S.diffFullscreenPanel === 'result' ? 'Exit fullscreen' : 'Fullscreen',
+      diffAFullscreenIcon: S.diffFullscreenPanel === 'a' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
+      diffBFullscreenIcon: S.diffFullscreenPanel === 'b' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
+      diffResultFullscreenIcon: S.diffFullscreenPanel === 'result' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
+      onDiffAFullscreen: () => this.setState(s => ({ diffFullscreenPanel: s.diffFullscreenPanel === 'a' ? null : 'a' })),
+      onDiffBFullscreen: () => this.setState(s => ({ diffFullscreenPanel: s.diffFullscreenPanel === 'b' ? null : 'b' })),
+      onDiffResultFullscreen: () => this.setState(s => ({ diffFullscreenPanel: s.diffFullscreenPanel === 'result' ? null : 'result' })),
 
       // sanitize
       sanitizeInput: S.sanitizeInput,
@@ -2910,6 +3054,14 @@ class Component extends DCLogic {
       sanitizeOutputHighlightEl,
       sanitizeOutputTaStyle,
       sanitizeHighlightStyle,
+      sanitizeGridClass, sanitizeInputPanelClass, sanitizeOutputPanelClass,
+      sanitizeInputSendMenuEl, sanitizeOutputSendMenuEl,
+      sanitizeInputFullscreenLabel: S.sanitizeFullscreenPanel === 'input' ? 'Exit fullscreen' : 'Fullscreen',
+      sanitizeOutputFullscreenLabel: S.sanitizeFullscreenPanel === 'output' ? 'Exit fullscreen' : 'Fullscreen',
+      sanitizeInputFullscreenIcon: S.sanitizeFullscreenPanel === 'input' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
+      sanitizeOutputFullscreenIcon: S.sanitizeFullscreenPanel === 'output' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
+      onSanitizeInputFullscreen: () => this.setState(s => ({ sanitizeFullscreenPanel: s.sanitizeFullscreenPanel === 'input' ? null : 'input' })),
+      onSanitizeOutputFullscreen: () => this.setState(s => ({ sanitizeFullscreenPanel: s.sanitizeFullscreenPanel === 'output' ? null : 'output' })),
       onSanitizeInputScroll: (e) => { this.syncLayers(this.sanitizeInputEditorRef, this.sanitizeInputHighlightRef, null, e.target); this.syncSanitizePanes(e.target); },
       onSanitizeOutputScroll: (e) => { this.syncLayers(this.sanitizeOutputEditorRef, this.sanitizeOutputHighlightRef, null, e.target); this.syncSanitizePanes(e.target); },
       sanitizeScrollLock: S.sanitizeScrollLock,
@@ -2972,7 +3124,6 @@ class Component extends DCLogic {
         iconDiffFile: ic.diffFile(),
         iconSettings: ic.settings(),
         iconInfo: ic.info(),
-        iconShield: ic.shield(),
       }; })(window.PAW_ICONS) : {}),
     };
   }
