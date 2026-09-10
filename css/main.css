@@ -897,6 +897,30 @@
   .rf-format-grid.rf-fs-explorer .rf-panel-source {
     display: none !important;
   }
+  .rf-sanitize-grid.rf-fs-input,
+  .rf-sanitize-grid.rf-fs-output {
+    grid-template-columns: 1fr !important;
+    gap: 0 !important;
+  }
+  .rf-sanitize-grid.rf-fs-input .rf-sanitize-panel-output,
+  .rf-sanitize-grid.rf-fs-output .rf-sanitize-panel-input {
+    display: none !important;
+  }
+  .rf-diff-wrap.rf-fs-a .rf-diff-input-grid,
+  .rf-diff-wrap.rf-fs-b .rf-diff-input-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0 !important;
+    flex: 1 !important;
+  }
+  .rf-diff-wrap.rf-fs-a .rf-diff-panel-b,
+  .rf-diff-wrap.rf-fs-b .rf-diff-panel-a,
+  .rf-diff-wrap.rf-fs-a .rf-diff-panel-result,
+  .rf-diff-wrap.rf-fs-b .rf-diff-panel-result {
+    display: none !important;
+  }
+  .rf-diff-wrap.rf-fs-result .rf-diff-input-grid {
+    display: none !important;
+  }
   .rf-panel-fullscreen {
     min-height: 0;
     height: 100%;

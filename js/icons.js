@@ -304,5 +304,14 @@
         13, 13, 'vertical-align:text-bottom;margin-right:3px'
       );
     },
+
+    // Send to (another mode)  (13×13, inline style for alignment)
+    sendTo: function () {
+      return ic(
+        '<path d="M2 7h8.5M7.5 3.5L11 7l-3.5 3.5"/>' +
+        '<path d="M2 2.5v9"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
   };
 })();
