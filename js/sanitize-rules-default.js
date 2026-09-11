@@ -31,6 +31,13 @@
           { id: 'sn-company', label: 'company', type: 'key', match: 'company', matchMode: 'wildcard', generator: 'companyName' },
           { id: 'sn-contact', label: 'contact', type: 'key', match: 'contact', matchMode: 'wildcard', generator: 'name' },
           { id: 'sn-serial-number', label: 'serial_number', type: 'key', match: 'serial_number', matchMode: 'wildcard', generator: 'generic' },
+          // Log-table fields (syslog, script log statements, transaction
+          // logs — e.g. rows copied from a ServiceNow list view). Matched
+          // against a CSV/TSV/Markdown-table column header the same way
+          // the fields above match a JSON key. See
+          // docs/features/paw-log-features-design.md.
+          { id: 'sn-transaction-id', label: 'transaction_id', type: 'key', match: '*transaction_id*', matchMode: 'wildcard', generator: 'hex32' },
+          { id: 'sn-session-id', label: 'session_id', type: 'key', match: '*session_id*', matchMode: 'wildcard', generator: 'hex32' },
         ],
         patternRules: [
           { id: 'pat-hex32', label: '32-char hex (sys_id shape)', type: 'pattern', pattern: '\\b[0-9a-fA-F]{32}\\b', generator: 'hex32' },

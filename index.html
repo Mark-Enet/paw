@@ -24,6 +24,10 @@
 <script src="js/sanitize-rules-default.js"></script>
 <script src="js/sanitize.js"></script>
 
+<!-- CSV/TSV/Markdown-table detection+parsing for Dig/Spot/Bury log support.
+     See docs/features/paw-log-features-design.md. -->
+<script src="js/table.js"></script>
+
 <!-- dc-runtime reads the content of this element as the component script.
      The inline loader below fetches js/app.js and injects it here, then
      loads js/dc-runtime.js which boots the component. -->
@@ -232,6 +236,8 @@
         </div>
       </div>
 
+      {{ logToolbarEl }}
+
       <div class="rf-explorer-toolbar">
         <div class="rf-explorer-seg">
           <button style="{{ toolbarSearchStyle }}" onclick="{{ onToolbarSearchMode }}">Search</button>
@@ -284,6 +290,10 @@
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDiffBeautify }}">{{ iconWand }}Beautify both</button>
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDiffSwap }}">{{ iconSwap }}Swap ⇄</button>
       <button style="{{ btnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onDiffSample }}">{{ iconDiffFile }}Load sample pair</button>
+      <sc-if value="{{ diffBothTable }}" hint-placeholder-val="{{ false }}">
+        <button style="{{ diffAlignBtnStyle }}" style-hover="{{ btnHover }}" title="{{ diffAlignTitle }}" onclick="{{ onDiffToggleAlign }}">Align rows by key</button>
+      </sc-if>
+      <button style="{{ diffNoiseBtnStyle }}" style-hover="{{ btnHover }}" title="Blank out timestamps/durations/hex32-ids/GUIDs before diffing" onclick="{{ onDiffToggleNoise }}">Ignore volatile fields</button>
       <span style="{{ diffSummaryStyle }}">{{ diffSummary }}</span>
     </div>
     <div class="rf-diff-input-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:0 0 30%;min-height:120px">
