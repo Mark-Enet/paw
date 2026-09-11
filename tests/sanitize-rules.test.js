@@ -22,10 +22,12 @@ function loadSanitizeModule() {
 
   const defaultsSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'sanitize-rules-default.js'), 'utf8');
   vm.runInContext(defaultsSrc, context, { filename: 'js/sanitize-rules-default.js' });
+  const tableSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'table.js'), 'utf8');
+  vm.runInContext(tableSrc, context, { filename: 'js/table.js' }); // renderOutput()'s table branch calls window.PAW_TABLE.serialize
   const engineSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'sanitize.js'), 'utf8');
   vm.runInContext(engineSrc, context, { filename: 'js/sanitize.js' });
 
-  return context.window.PAW_SANITIZE;
+  return Object.assign({}, context.window.PAW_SANITIZE, { PAW_TABLE: context.window.PAW_TABLE });
 }
 
 // Minimal fake DOM sufficient to exercise applyReplacementsXml — mirrors the
@@ -218,6 +220,42 @@ test('analyze + renderOutput round-trips a JSON payload, redacting matched leave
   const output2 = JSON.parse(S.renderOutput(src, run, excluded));
   assert.equal(output2.sys_id, 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4');
   assert.notEqual(output2.caller_id, 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4');
+});
+
+test('analyze + renderOutput round-trips a CSV log export, redacting matched columns only', () => {
+  const S = loadSanitizeModule();
+  const src = 'sys_id,caller_id,short_description\n' +
+    'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4,a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4,Printer jam';
+  const profile = S.getMergedRuleset().profiles.find((p) => p.id === 'servicenow');
+  const mapping = S.createMapping();
+  // Real app.js glue: parseFns.parseTable/rootNode mirror app.js's parseTable()
+  // (wraps window.PAW_TABLE.parse) and rootNode() (buildJson over the parsed
+  // array-of-objects) exactly, so this exercises the same code path Bury runs.
+  const buildJson = (key, value, p) => {
+    if (Array.isArray(value)) return { kind: 'array', key, path: p, children: value.map((v, i) => buildJson(i, v, p + '/' + i)) };
+    if (value !== null && typeof value === 'object') return { kind: 'object', key, path: p, children: Object.keys(value).map((k) => buildJson(k, value[k], p + '/' + k)) };
+    return { kind: 'leaf', key, path: p, disp: typeof value === 'string' ? value : String(value) };
+  };
+  const parseFns = {
+    parseJSON: () => ({ ok: false }),
+    parseXML: () => ({ ok: false }),
+    parseTable: (text) => S.PAW_TABLE.parse(text),
+    rootNode: (parsed) => buildJson('root', parsed.value, '/root'),
+  };
+
+  const run = S.analyze(src, profile, mapping, parseFns);
+  assert.equal(run.format, 'table');
+  assert.equal(run.matches.length, 2); // sys_id and caller_id columns; short_description is untouched
+
+  const output = S.renderOutput(src, run, run.matches);
+  const rows = output.split('\n');
+  assert.equal(rows[0], 'sys_id,caller_id,short_description');
+  const cells = rows[1].split(',');
+  assert.match(cells[0], /^[0-9a-f]{32}$/);
+  assert.notEqual(cells[0], 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4');
+  // same original value repeated twice -> same fake both times
+  assert.equal(cells[0], cells[1]);
+  assert.equal(cells[2], 'Printer jam');
 });
 
 test('a PII pattern embedded inside a longer structural leaf value (e.g. a notes field) is redacted, not skipped', () => {

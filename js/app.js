@@ -226,8 +226,13 @@ class Component extends DCLogic {
       dragging: false,
       tableMode: P.tableMode || 'path',
       tableSourcePath: P.tableSourcePath || '/root',
+      tableLevelFilter: null, // Record Table log view: 'error'|'warn'|'info'|'debug'|null
+      tableStitchLogs: false, // Record Table: merge blank-level/blank-time continuation rows into the row above
+      tableLogSort: null, // Record Table: 'asc'|'desc' by the guessed timestamp column, or null for document order
       diffA: P.diffA != null ? P.diffA : SAMPLE_DIFF_A,
       diffB: P.diffB != null ? P.diffB : SAMPLE_DIFF_B,
+      diffAlignByKey: false, // Spot: when both sides are tabular, diff by a guessed key column instead of raw line order
+      diffSuppressNoise: false, // Spot: blank out timestamps/durations/hex32-ids/GUIDs before diffing so real changes aren't buried
       scrollTop: 0,
       viewportH: 600,
       fullscreenPanel: P.fullscreenPanel || null,
@@ -633,6 +638,7 @@ class Component extends DCLogic {
     if (!t) return 'empty';
     if (t[0] === '<') return 'xml';
     if (t[0] === '{' || t[0] === '[') return 'json';
+    if (window.PAW_TABLE && window.PAW_TABLE.detect(t)) return 'table';
     return 'json';
   }
 
@@ -640,7 +646,18 @@ class Component extends DCLogic {
     const fmt = this.detect(text);
     if (fmt === 'empty') return { format: 'empty', ok: false, empty: true };
     if (fmt === 'xml') return this.parseXML(text);
+    if (fmt === 'table') return this.parseTable(text);
     return this.parseJSON(text);
+  }
+
+  // CSV/TSV/Markdown-table input (e.g. a ServiceNow list-view export copied
+  // via snutils). Parses into the same array-of-plain-objects shape a JSON
+  // array already takes, so rootNode()/buildJson() build the usual tree
+  // with zero special-casing downstream.
+  parseTable(text) {
+    const result = window.PAW_TABLE.parse(text);
+    if (!result.ok) return { format: 'table', ok: false, error: { message: result.error, line: null, col: null } };
+    return result;
   }
 
   parseJSON(text) {
@@ -763,7 +780,7 @@ class Component extends DCLogic {
 
   rootNode(parsed) {
     if (!parsed.ok) return null;
-    if (parsed.format === 'json') return this.buildJson('root', parsed.value, '/root', '$');
+    if (parsed.format === 'json' || parsed.format === 'table') return this.buildJson('root', parsed.value, '/root', '$');
     const de = parsed.doc.documentElement;
     return this.buildXmlNode(de, '/' + de.nodeName, '/' + de.nodeName);
   }
@@ -1271,8 +1288,8 @@ class Component extends DCLogic {
   convert() {
     const p = this.parse(this.state.input);
     if (!p.ok) return;
-    if (p.format === 'json') { const o = this.jsonToXml(p.value); this.applyInput(o); }
-    else { const o = this.xmlToJson(p.doc); this.applyInput(o); }
+    if (p.format === 'xml') { const o = this.xmlToJson(p.doc); this.applyInput(o); }
+    else { const o = this.jsonToXml(p.value); this.applyInput(o); } // table format's value is already a plain array-of-objects, same as JSON
   }
 
   esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -1807,6 +1824,7 @@ class Component extends DCLogic {
 
   highlight(text, fmt, tok) {
     if (!text) return '';
+    if (fmt === 'table') return text; // CSV/TSV/Markdown-table text isn't JSON/XML-shaped; leave unstyled rather than mis-highlight it
     try { return fmt === 'xml' ? this.tokenizeXML(text, tok) : this.tokenizeJSON(text, tok); }
     catch (e) { return text; }
   }
@@ -1829,10 +1847,83 @@ class Component extends DCLogic {
     return rows;
   }
 
+  // Spot's "Ignore volatile fields" toggle: blanks out the kinds of values
+  // that are expected to differ between two troubleshooting runs
+  // (timestamps, hex32 sys_ids, GUIDs, millisecond durations) so the diff
+  // surfaces the actual behavioral change instead of every timestamp.
+  // Informed by the same value shapes Bury's ServiceNow pattern rules
+  // target, but implemented standalone since diff normalization just needs
+  // *a* consistent placeholder per shape, not Bury's deterministic
+  // real->fake mapping.
+  denoiseForDiff(text) {
+    return String(text)
+      .replace(/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?\b/g, '<TIMESTAMP>')
+      .replace(/\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g, '<GUID>')
+      .replace(/\b[0-9a-fA-F]{32}\b/g, '<ID>')
+      .replace(/\b\d+\s?ms\b/g, '<DURATION>');
+  }
+
+  // Spot's "Align rows by key" toggle: when both sides are tabular, builds
+  // diff rows keyed on a guessed id column (sys_id, correlation_id, ...)
+  // instead of relying on lineDiff's line-order LCS — so two exports that
+  // are paged or sorted differently still diff sensibly. textFn stringifies
+  // (and, per the noise toggle, denoises) a record for both the equality
+  // check and display, so a row that only differs in a suppressed field is
+  // correctly shown as unchanged.
+  //
+  // Groups by key rather than assuming one row per key: a per-row id like
+  // sys_id is unique so each group has one row per side, but a key column
+  // can legitimately repeat (a correlation_id/transaction_id groups many
+  // log lines from the same transaction on purpose) — a plain Map would
+  // silently drop all but the last row per duplicate key. Same-key rows
+  // are compared position-wise within their group instead.
+  alignedTableDiffRows(recordsA, recordsB, keyCol, textFn) {
+    const groupByKey = (records) => {
+      const map = new Map();
+      records.forEach(r => {
+        const k = String(r[keyCol]);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(r);
+      });
+      return map;
+    };
+    const mapA = groupByKey(recordsA), mapB = groupByKey(recordsB);
+    const order = [];
+    const seen = new Set();
+    recordsA.concat(recordsB).forEach(r => { const k = String(r[keyCol]); if (!seen.has(k)) { seen.add(k); order.push(k); } });
+    const rows = [];
+    let ln = 0, rn = 0;
+    order.forEach(k => {
+      const groupA = mapA.get(k) || [], groupB = mapB.get(k) || [];
+      for (let i = 0; i < Math.max(groupA.length, groupB.length); i++) {
+        const ra = groupA[i], rb = groupB[i];
+        const la = ra ? textFn(ra) : null;
+        const lb = rb ? textFn(rb) : null;
+        if (la === lb) { ln++; rn++; rows.push({ t: 'eq', l: la, r: lb, ln, rn }); continue; }
+        if (la != null) { ln++; rows.push({ t: 'del', l: la, r: null, ln, rn: null }); }
+        if (lb != null) { rn++; rows.push({ t: 'add', l: null, r: lb, ln: null, rn }); }
+      }
+    });
+    return rows;
+  }
+
   renderDiff(tok) {
-    const norm = t => { const p = this.parse(t); if (p.ok && p.format === 'json') return JSON.stringify(p.value, null, 2); if (p.ok && p.format === 'xml') return this.prettyXml(p.doc); return t; };
-    const a = norm(this.state.diffA), b = norm(this.state.diffB);
-    const rows = this.lineDiff(a, b);
+    const S = this.state;
+    const denoise = t => S.diffSuppressNoise ? this.denoiseForDiff(t) : t;
+    const pa = this.parse(S.diffA), pb = this.parse(S.diffB);
+    const bothTable = pa.ok && pb.ok && pa.format === 'table' && pb.format === 'table';
+    const alignKeyCol = (S.diffAlignByKey && bothTable)
+      ? (window.PAW_TABLE.guessKeyColumn(pa.tableMeta.headers) || window.PAW_TABLE.guessKeyColumn(pb.tableMeta.headers))
+      : null;
+    let rows;
+    if (alignKeyCol) {
+      const textFn = rec => denoise(JSON.stringify(rec));
+      rows = this.alignedTableDiffRows(pa.value, pb.value, alignKeyCol, textFn);
+    } else {
+      const norm = t => { const p = this.parse(t); if (p.ok && p.format === 'json') return JSON.stringify(p.value, null, 2); if (p.ok && p.format === 'xml') return this.prettyXml(p.doc); if (p.ok && p.format === 'table') return window.PAW_TABLE.serialize(p.value, p.tableMeta); return t; };
+      const a = denoise(norm(S.diffA)), b = denoise(norm(S.diffB));
+      rows = this.lineDiff(a, b);
+    }
     let add = 0, del = 0;
     rows.forEach(r => { if (r.t === 'add') add++; else if (r.t === 'del') del++; });
     const gut = { display: 'inline-block', width: '42px', textAlign: 'right', paddingRight: '10px', color: tok.textFaint, userSelect: 'none', flex: '0 0 auto' };
@@ -1852,7 +1943,7 @@ class Component extends DCLogic {
     const head = h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', position: 'sticky', top: 0, background: tok.panel2, borderBottom: '1px solid ' + tok.border, font: '600 11px/1 ' + tok.fontUi, color: tok.textFaint, letterSpacing: '.04em', textTransform: 'uppercase', zIndex: 1 } },
       h('div', { style: { padding: '8px 12px', borderRight: '1px solid ' + tok.border } }, 'Version A'),
       h('div', { style: { padding: '8px 12px' } }, 'Version B'));
-    return { el: h('div', { style: { font: '400 12.5px/19px ' + tok.fontMono, minWidth: 0 } }, head, body), add, del, rows };
+    return { el: h('div', { style: { font: '400 12.5px/19px ' + tok.fontMono, minWidth: 0 } }, head, body), add, del, rows, bothTable };
   }
 
   // A thin ruler alongside the diff result showing at a glance where the
@@ -1924,7 +2015,7 @@ class Component extends DCLogic {
       return this._sanitizeRun;
     }
     const mapping = this.getSanitizeMapping();
-    const parseFns = { parseJSON: this.parseJSON.bind(this), parseXML: this.parseXML.bind(this), rootNode: this.rootNode.bind(this) };
+    const parseFns = { parseJSON: this.parseJSON.bind(this), parseXML: this.parseXML.bind(this), parseTable: this.parseTable.bind(this), rootNode: this.rootNode.bind(this) };
     const run = window.PAW_SANITIZE.analyze(S.sanitizeInput, profile, mapping, parseFns);
     window.PAW_SANITIZE.saveMapping(mapping);
     run._input = S.sanitizeInput;
@@ -2476,13 +2567,20 @@ class Component extends DCLogic {
     );
   }
 
-  renderRecordRow(row, ctx, columns) {
+  // logLevelCol (optional): guessed level/severity column name for the
+  // current table — when set, tints the row's left edge by normalized
+  // level (error/warn/info/debug) so a scanned log reads at a glance.
+  renderRecordRow(row, ctx, columns, logLevelCol) {
     const tok = ctx.tok;
     const pathCopied = this.state.copied === row.path + ':path';
     const rowCopied = this.state.copied === row.path + ':row';
     const gridTemplateColumns = ['minmax(220px,1.4fr)'].concat(columns.map(() => 'minmax(140px,1fr)')).concat('auto').join(' ');
+    const level = logLevelCol ? window.PAW_TABLE.normalizeLevel(row.fields[logLevelCol]) : null;
+    const levelColor = { error: tok.sem.err, warn: '#c9922e', info: tok.accent, debug: tok.textFaint }[level];
+    const rowStyle = { display: 'grid', gridTemplateColumns, gap: '10px', alignItems: 'stretch', minHeight: TABLE_ROW_MIN_H + 'px', padding: '6px 10px', borderBottom: '1px solid ' + tok.border + '66' };
+    if (levelColor) { rowStyle.borderLeft = '3px solid ' + levelColor; rowStyle.background = levelColor + '14'; }
 
-    return h('div', { className: 'rf-record-row rf-row', style: { display: 'grid', gridTemplateColumns, gap: '10px', alignItems: 'stretch', minHeight: TABLE_ROW_MIN_H + 'px', padding: '6px 10px', borderBottom: '1px solid ' + tok.border + '66' } },
+    return h('div', { className: 'rf-record-row rf-row', style: rowStyle },
       h('div', { className: 'rf-record-cell-path', title: row.path, style: { color: tok.accent, font: '600 11px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', alignSelf: 'center' } }, this.hl(row.path, ctx, row.node.path, 'k')),
       columns.map(col => {
         const meta = (row.fieldMeta && row.fieldMeta[col]) || { nodePath: row.node.path, part: 'v' };
@@ -2571,6 +2669,8 @@ class Component extends DCLogic {
     const node = model.node;
     const isJson = parsed.format === 'json';
     const isXml = parsed.format === 'xml';
+    const isTable = parsed.format === 'table';
+    const tableExt = isTable && parsed.ok ? (parsed.tableMeta.kind === 'md' ? 'md' : parsed.tableMeta.kind === 'tsv' ? 'tsv' : 'csv') : null;
     const heavy = S.input.length > 120000;
 
     // status
@@ -2601,7 +2701,7 @@ class Component extends DCLogic {
     const activeIndex = activePool.length ? ((S.matchIndex % activePool.length) + activePool.length) % activePool.length : -1;
     const savedQuery = S.query.trim();
     const query = S.explorerMode === 'query' ? savedQuery : '';
-    let explorerEl, queryStat = '', queryStatOk = true;
+    let explorerEl, queryStat = '', queryStatOk = true, logToolbarEl = null;
     let queryResults = [];
     let queryError = '';
     let queryMatchPaths = new Set();
@@ -2716,7 +2816,63 @@ class Component extends DCLogic {
         this._tableCache = { cacheKey: tableCacheKey, mode: tableMode, sourcePath: tableSourcePath, res };
       }
       const table = this._tableCache.res;
-      const rows = table.rows;
+      let rows = table.rows;
+      // Log-aware Record Table extras (level color/filter, timestamp sort,
+      // continuation-row stitching) — scoped to Record Table on a
+      // recognized CSV/TSV/Markdown-table document only, so a plain JSON
+      // array's table view is unaffected. See docs/features/paw-log-features-design.md.
+      const isLogTable = tableMode === 'record' && parsed.format === 'table' && table.suitable;
+      let logLevelCol = null, logTimeCol = null, logMsgCol = null;
+      if (isLogTable) {
+        logLevelCol = window.PAW_TABLE.guessLevelColumn(table.columns);
+        logTimeCol = window.PAW_TABLE.guessTimestampColumn(table.columns);
+        logMsgCol = window.PAW_TABLE.guessMessageColumn(table.columns);
+        if (S.tableStitchLogs && (logLevelCol || logTimeCol) && logMsgCol) {
+          const stitched = [];
+          rows.forEach(r => {
+            const isCont = stitched.length && window.PAW_TABLE.isContinuationRow(r.fields, logLevelCol, logTimeCol);
+            if (isCont) {
+              const prev = stitched[stitched.length - 1];
+              const extra = r.fields[logMsgCol];
+              if (extra) prev.fields[logMsgCol] = (prev.fields[logMsgCol] || '') + '\n' + extra;
+            } else {
+              stitched.push(Object.assign({}, r, { fields: Object.assign({}, r.fields) }));
+            }
+          });
+          rows = stitched;
+        }
+        if (S.tableLevelFilter && logLevelCol) {
+          rows = rows.filter(r => window.PAW_TABLE.normalizeLevel(r.fields[logLevelCol]) === S.tableLevelFilter);
+        }
+        if (S.tableLogSort && logTimeCol) {
+          const dir = S.tableLogSort === 'desc' ? -1 : 1;
+          rows = rows.slice().sort((a, b) => {
+            const ta = window.PAW_TABLE.parseTimestamp(a.fields[logTimeCol]);
+            const tb = window.PAW_TABLE.parseTimestamp(b.fields[logTimeCol]);
+            if (ta == null && tb == null) return 0;
+            if (ta == null) return 1;
+            if (tb == null) return -1;
+            return (ta - tb) * dir;
+          });
+        }
+      }
+      if (isLogTable && (logLevelCol || logTimeCol)) {
+        const levelsPresent = new Set();
+        if (logLevelCol) table.rows.forEach(r => { const lv = window.PAW_TABLE.normalizeLevel(r.fields[logLevelCol]); if (lv) levelsPresent.add(lv); });
+        const chipStyle = (active) => ({ font: '600 10.5px/1 ' + tok.fontUi, letterSpacing: '.03em', textTransform: 'uppercase', color: active ? tok.accent : tok.textDim, background: active ? tok.accentWeak : tok.panel2, border: '1px solid ' + (active ? tok.accent : tok.border), borderRadius: '5px', padding: '4px 8px', cursor: 'pointer' });
+        const levelChip = (lv, label) => h('button', { key: lv || 'all', style: chipStyle(S.tableLevelFilter === lv), onClick: () => this.setState({ tableLevelFilter: lv }) }, label);
+        logToolbarEl = h('div', { className: 'rf-explorer-log-toolbar', style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 10px', borderBottom: '1px solid ' + tok.border, background: tok.panel2, flexWrap: 'wrap' } },
+          h('span', { style: { font: '600 10px/1 ' + tok.fontUi, letterSpacing: '.06em', color: tok.textFaint, textTransform: 'uppercase', marginRight: '2px' } }, 'Log'),
+          logLevelCol ? [levelChip(null, 'All')].concat(
+            [['error', 'Error'], ['warn', 'Warn'], ['info', 'Info'], ['debug', 'Debug']]
+              .filter(pair => levelsPresent.has(pair[0]))
+              .map(pair => levelChip(pair[0], pair[1]))
+          ) : null,
+          logLevelCol || logTimeCol ? h('button', { style: chipStyle(S.tableStitchLogs), title: 'Merge blank-level/blank-time continuation rows into the row above', onClick: () => this.setState(s => ({ tableStitchLogs: !s.tableStitchLogs })) }, 'Stitch rows') : null,
+          logTimeCol ? h('button', { style: chipStyle(S.tableLogSort === 'asc'), onClick: () => this.setState(s => ({ tableLogSort: s.tableLogSort === 'asc' ? null : 'asc' })) }, 'Sort ↑ time') : null,
+          logTimeCol ? h('button', { style: chipStyle(S.tableLogSort === 'desc'), onClick: () => this.setState(s => ({ tableLogSort: s.tableLogSort === 'desc' ? null : 'desc' })) }, 'Sort ↓ time') : null
+        );
+      }
       this._activeRowIndex = -1;
       this._activeRowHeight = tableMode === 'record' ? RECORD_ROW_H : TABLE_ROW_H;
       if (activePath) {
@@ -2762,7 +2918,7 @@ class Component extends DCLogic {
               recordColumns.map(col => h('span', { key: col }, col)),
               h('span', { style: { justifySelf: 'end' } }, 'Copy')
             ),
-            h('div', { className: 'rf-record-body' }, rows.map(row => this.renderRecordRow(row, ctx, recordColumns)))
+            h('div', { className: 'rf-record-body' }, rows.map(row => this.renderRecordRow(row, ctx, recordColumns, logLevelCol)))
           );
         } else {
           explorerEl = h('div', { className: 'rf-table', style: { minWidth: 0 } },
@@ -2823,7 +2979,7 @@ class Component extends DCLogic {
     const gutterText = this._gutterCache.text;
 
     // badges + labels
-    const badgeMap = { json: tok.accent, xml: tok.syn.tag, empty: tok.textFaint };
+    const badgeMap = { json: tok.accent, xml: tok.syn.tag, table: tok.syn.string, empty: tok.textFaint };
     const badgeColor = badgeMap[parsed.format] || tok.textFaint;
     const badgeStyle = { display: 'inline-flex', alignItems: 'center', height: '20px', padding: '0 8px', borderRadius: '5px', font: '700 10px/1 ' + tok.fontMono, letterSpacing: '.06em', color: badgeColor, background: 'transparent', border: '1px solid ' + badgeColor + '66' };
 
@@ -2840,7 +2996,7 @@ class Component extends DCLogic {
     // tab's source panel (transparent-text <textarea> over a highlighted
     // <pre>) — see syncLayers(). tokenizeJSON/tokenizeXML aren't memoized
     // internally, so cache per pane on (text, format, theme, direction).
-    const sanitizeHlFmt = sanitizeRun.format === 'xml' ? 'xml' : 'json';
+    const sanitizeHlFmt = sanitizeRun.format === 'xml' ? 'xml' : sanitizeRun.format === 'table' ? 'table' : 'json';
     const sanitizeHlLimit = 600000;
     if (!this._sanitizeInputHlCache || this._sanitizeInputHlCache.text !== S.sanitizeInput || this._sanitizeInputHlCache.fmt !== sanitizeHlFmt || this._sanitizeInputHlCache.theme !== theme || this._sanitizeInputHlCache.dir !== dir) {
       const el = S.sanitizeInput && S.sanitizeInput.length <= sanitizeHlLimit ? this.highlight(S.sanitizeInput, sanitizeHlFmt, tok) : null;
@@ -2940,6 +3096,7 @@ class Component extends DCLogic {
       tableModeRecordStyle: seg(tableMode === 'record'),
       onTableModePath: () => this.setState({ tableMode: 'path' }),
       onTableModeRecord: () => this.setState({ tableMode: 'record' }),
+      logToolbarEl,
       onTableSourceRoot: () => this.selectTableSource(tableRootPath),
 
       btnStyle, fsBtnStyle, btnHover, btnGhost, navBtnStyle,
@@ -2977,7 +3134,7 @@ class Component extends DCLogic {
       onSample: () => { const v = isXml ? this.jsonToXml(JSON.parse(SAMPLE_JSON)) : SAMPLE_JSON; this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0, sourceName: '' }); },
       onCopySource: () => this.copy(S.input, '__src'), copyLabel: S.copied === '__src' ? 'Copied ✓' : 'Copy',
       sourceSendMenuEl,
-      onDownload: () => { const blob = new Blob([S.input], { type: isXml ? 'text/xml' : 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'document.' + (isXml ? 'xml' : 'json'); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); },
+      onDownload: () => { const blob = new Blob([S.input], { type: isXml ? 'text/xml' : isTable ? 'text/csv' : 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'document.' + (isXml ? 'xml' : tableExt || 'json'); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); },
       onClear: () => this.applyInput('', { collapsed: new Set(), search: '', query: '' }),
       onDragOver: (e) => { e.preventDefault(); if (!S.dragging) this.setState({ dragging: true }); },
       onDragLeave: (e) => { e.preventDefault(); this.setState({ dragging: false }); },
@@ -3023,6 +3180,12 @@ class Component extends DCLogic {
       onDiffBeautify: () => { const nb = t => { const p = this.parse(t); return p.ok && p.format === 'json' ? JSON.stringify(p.value, null, 2) : (p.ok && p.format === 'xml' ? this.prettyXml(p.doc) : t); }; this.setState({ diffA: nb(S.diffA), diffB: nb(S.diffB) }); },
       onDiffSwap: () => this.setState({ diffA: S.diffB, diffB: S.diffA }),
       onDiffSample: () => this.setState({ diffA: SAMPLE_DIFF_A, diffB: SAMPLE_DIFF_B }),
+      diffBothTable: diff.bothTable,
+      diffAlignTitle: 'Diff by a guessed key column (sys_id, correlation_id, ...) instead of line order, so reordered/paged exports still diff sensibly',
+      diffAlignBtnStyle: Object.assign({}, btnStyle, S.diffAlignByKey ? { color: tok.accent, borderColor: tok.accent, background: tok.accentWeak } : {}),
+      onDiffToggleAlign: () => this.setState(s => ({ diffAlignByKey: !s.diffAlignByKey })),
+      diffNoiseBtnStyle: Object.assign({}, btnStyle, S.diffSuppressNoise ? { color: tok.accent, borderColor: tok.accent, background: tok.accentWeak } : {}),
+      onDiffToggleNoise: () => this.setState(s => ({ diffSuppressNoise: !s.diffSuppressNoise })),
       diffEl: diff.el, diffSummary, diffSummaryStyle,
       diffWrapClass, diffPanelAClass, diffPanelBClass, diffPanelResultClass,
       diffResultRef: this.diffResultRef,
