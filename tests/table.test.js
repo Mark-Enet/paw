@@ -68,6 +68,47 @@ test('blank/duplicate headers get a stable column_N fallback name', () => {
   assert.deepEqual(plain(parsed.tableMeta.headers), ['a', 'column_2', 'a_3']);
 });
 
+test('hasHeaderRow:false treats every row as data and synthesizes column_N names (CSV/TSV)', () => {
+  const csv = PAW_TABLE.parse('1,2,3\n4,5,6', { hasHeaderRow: false });
+  assert.equal(csv.ok, true);
+  assert.deepEqual(plain(csv.tableMeta.headers), ['column_1', 'column_2', 'column_3']);
+  assert.equal(csv.tableMeta.hasHeaderRow, false);
+  assert.equal(csv.tableMeta.originalHeaders, null);
+  assert.deepEqual(plain(csv.value), [
+    { column_1: '1', column_2: '2', column_3: '3' },
+    { column_1: '4', column_2: '5', column_3: '6' },
+  ]);
+
+  const tsv = PAW_TABLE.parse('a\tb\nc\td', { hasHeaderRow: false });
+  assert.deepEqual(plain(tsv.value), [
+    { column_1: 'a', column_2: 'b' },
+    { column_1: 'c', column_2: 'd' },
+  ]);
+});
+
+test('hasHeaderRow:false on a Markdown table keeps the header-looking row as data', () => {
+  const md = PAW_TABLE.parse('| Level | Message |\n| --- | --- |\n| Error | Boom |', { hasHeaderRow: false });
+  assert.equal(md.ok, true);
+  assert.deepEqual(plain(md.tableMeta.headers), ['column_1', 'column_2']);
+  assert.deepEqual(plain(md.value), [
+    { column_1: 'Level', column_2: 'Message' },
+    { column_1: 'Error', column_2: 'Boom' },
+  ]);
+});
+
+test('hasHeaderRow defaults to true when options are omitted or hasHeaderRow is unspecified', () => {
+  const withoutOptions = PAW_TABLE.parse('a,b\n1,2');
+  const withEmptyOptions = PAW_TABLE.parse('a,b\n1,2', {});
+  assert.deepEqual(plain(withoutOptions.tableMeta.headers), ['a', 'b']);
+  assert.deepEqual(plain(withEmptyOptions.tableMeta.headers), ['a', 'b']);
+  assert.equal(withoutOptions.tableMeta.hasHeaderRow, true);
+});
+
+test('hasHeaderRow:false round-trips through serialize with synthesized headers', () => {
+  const parsed = PAW_TABLE.parse('1,2\n3,4', { hasHeaderRow: false });
+  assert.equal(PAW_TABLE.serialize(parsed.value, parsed.tableMeta), 'column_1,column_2\n1,2\n3,4');
+});
+
 test('serialize round-trips CSV/TSV/MD back to their original shape', () => {
   const csv = PAW_TABLE.parse('a,b\n1,2\n3,4');
   assert.equal(PAW_TABLE.serialize(csv.value, csv.tableMeta), 'a,b\n1,2\n3,4');

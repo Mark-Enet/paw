@@ -152,7 +152,12 @@
     });
   }
 
-  function parse(text) {
+  // options.hasHeaderRow (default true): when false, the first row is
+  // treated as ordinary data instead of column names, and every column
+  // gets a synthesized "column_N" name via normalizeHeaders()'s existing
+  // blank-cell fallback (forced here by handing it blank names).
+  function parse(text, options) {
+    var hasHeaderRow = !options || options.hasHeaderRow !== false;
     var trimmed = String(text || '').trim();
     var det = detect(trimmed);
     if (!det) return { format: 'table', ok: false, error: 'Not a recognized table format (CSV/TSV/Markdown table)' };
@@ -160,18 +165,29 @@
     var headers, dataRows, meta;
     if (det.kind === 'md') {
       var md = parseMarkdownTable(trimmed);
-      headers = md.headers;
-      dataRows = md.rows;
+      if (hasHeaderRow) {
+        headers = md.headers;
+        dataRows = md.rows;
+      } else {
+        headers = md.headers.map(function () { return ''; });
+        dataRows = [md.headers].concat(md.rows);
+      }
       meta = { kind: 'md', aligns: md.aligns };
     } else {
       var rows = tryDelimited(trimmed, det.delimiter);
-      headers = rows[0];
-      dataRows = rows.slice(1);
+      if (hasHeaderRow) {
+        headers = rows[0];
+        dataRows = rows.slice(1);
+      } else {
+        headers = rows[0].map(function () { return ''; });
+        dataRows = rows;
+      }
       meta = { kind: det.kind, delimiter: det.delimiter };
     }
     var normHeaders = normalizeHeaders(headers);
     meta.headers = normHeaders;
-    meta.originalHeaders = headers;
+    meta.originalHeaders = hasHeaderRow ? headers : null;
+    meta.hasHeaderRow = hasHeaderRow;
     return { format: 'table', ok: true, value: toRecords(normHeaders, dataRows), tableMeta: meta };
   }
 

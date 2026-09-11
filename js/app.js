@@ -190,6 +190,7 @@ function loadPersisted() {
   if (data.diffFullscreenPanel !== 'a' && data.diffFullscreenPanel !== 'b' && data.diffFullscreenPanel !== 'result') delete data.diffFullscreenPanel;
   if (data.tableMode !== 'path' && data.tableMode !== 'record') delete data.tableMode;
   if (typeof data.tableSourcePath !== 'string') delete data.tableSourcePath;
+  if (typeof data.tableHasHeaderRow !== 'boolean') delete data.tableHasHeaderRow;
   if (typeof data.sourceName !== 'string') delete data.sourceName;
   else {
     data.sourceName = data.sourceName.trim().slice(0, SOURCE_NAME_MAX_LEN);
@@ -229,6 +230,7 @@ class Component extends DCLogic {
       tableLevelFilter: null, // Record Table log view: 'error'|'warn'|'info'|'debug'|null
       tableStitchLogs: false, // Record Table: merge blank-level/blank-time continuation rows into the row above
       tableLogSort: null, // Record Table: 'asc'|'desc' by the guessed timestamp column, or null for document order
+      tableHasHeaderRow: P.tableHasHeaderRow !== false, // global "how do I read tabular text" preference, shared by Dig/Spot/Bury via parseTable()
       diffA: P.diffA != null ? P.diffA : SAMPLE_DIFF_A,
       diffB: P.diffB != null ? P.diffB : SAMPLE_DIFF_B,
       diffAlignByKey: false, // Spot: when both sides are tabular, diff by a guessed key column instead of raw line order
@@ -374,7 +376,7 @@ class Component extends DCLogic {
       prevState.rememberPrefs.explorer !== this.state.rememberPrefs.explorer ||
       prevState.rememberPrefs.find !== this.state.rememberPrefs.find
     );
-    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.sourceName !== this.state.sourceName || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.sanitizeScrollLock !== this.state.sanitizeScrollLock || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.sanitizeFullscreenPanel !== this.state.sanitizeFullscreenPanel || prevState.diffFullscreenPanel !== this.state.diffFullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
+    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.sourceName !== this.state.sourceName || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.sanitizeScrollLock !== this.state.sanitizeScrollLock || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.sanitizeFullscreenPanel !== this.state.sanitizeFullscreenPanel || prevState.diffFullscreenPanel !== this.state.diffFullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.tableHasHeaderRow !== this.state.tableHasHeaderRow || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
       this.schedulePersist();
     }
     this.syncEditorLayers();
@@ -391,6 +393,7 @@ class Component extends DCLogic {
       indent: S.indent,
       softWrap: S.softWrap,
       sanitizeScrollLock: S.sanitizeScrollLock,
+      tableHasHeaderRow: S.tableHasHeaderRow,
       rememberPrefs: remember,
     };
 
@@ -655,7 +658,7 @@ class Component extends DCLogic {
   // array already takes, so rootNode()/buildJson() build the usual tree
   // with zero special-casing downstream.
   parseTable(text) {
-    const result = window.PAW_TABLE.parse(text);
+    const result = window.PAW_TABLE.parse(text, { hasHeaderRow: this.state.tableHasHeaderRow !== false });
     if (!result.ok) return { format: 'table', ok: false, error: { message: result.error, line: null, col: null } };
     return result;
   }
@@ -1218,6 +1221,7 @@ class Component extends DCLogic {
   reformat(minify) {
     const p = this.parse(this.state.input);
     if (!p.ok) return;
+    if (p.format === 'table') return; // no beautify/minify concept for tabular text; also reachable via the Cmd/Ctrl+Enter and Cmd/Ctrl+\ shortcuts, not just the (now-hidden) toolbar buttons
     if (p.format === 'json') {
       const out = minify ? JSON.stringify(p.value) : JSON.stringify(p.value, null, this.indentStr());
       this.applyInput(out, minify ? { softWrap: true } : null);
@@ -2011,7 +2015,8 @@ class Component extends DCLogic {
       ? Object.assign({}, baseProfile, { patternRules: (baseProfile.patternRules || []).concat(S.sanitizeManualRules) })
       : baseProfile;
     const rulesetKey = JSON.stringify(profile);
-    if (this._sanitizeRun && this._sanitizeRun._input === S.sanitizeInput && this._sanitizeRun._rulesetKey === rulesetKey) {
+    const hasHeaderRow = S.tableHasHeaderRow !== false; // parseTable() (used for table-format sanitize input) reads this global toggle
+    if (this._sanitizeRun && this._sanitizeRun._input === S.sanitizeInput && this._sanitizeRun._rulesetKey === rulesetKey && this._sanitizeRun._hasHeaderRow === hasHeaderRow) {
       return this._sanitizeRun;
     }
     const mapping = this.getSanitizeMapping();
@@ -2020,6 +2025,7 @@ class Component extends DCLogic {
     window.PAW_SANITIZE.saveMapping(mapping);
     run._input = S.sanitizeInput;
     run._rulesetKey = rulesetKey;
+    run._hasHeaderRow = hasHeaderRow;
     this._sanitizeRun = run;
     return run;
   }
@@ -2365,10 +2371,11 @@ class Component extends DCLogic {
 
   buildModel() {
     const input = this.state.docInput;
-    if (this._model && this._model.input === input) return this._model;
+    const hasHeaderRow = this.state.tableHasHeaderRow !== false;
+    if (this._model && this._model.input === input && this._model.hasHeaderRow === hasHeaderRow) return this._model;
     const parsed = this.parse(input);
     const node = this.rootNode(parsed);
-    this._model = { input, parsed, node };
+    this._model = { input, parsed, node, hasHeaderRow };
     return this._model;
   }
 
@@ -2623,6 +2630,14 @@ class Component extends DCLogic {
     const dir = S.direction, theme = S.theme;
     const tok = tokens(dir, theme);
     const showLN = this.props.showLineNumbers !== false;
+    // The gutter numbers one entry per '\n'-split logical line and never
+    // itself wraps — when Wrap is on, a single long logical line can visually
+    // occupy multiple screen rows in the textarea while the gutter still
+    // shows it as one row, so numbering drifts out of alignment. Hide the
+    // gutter while Wrap is on rather than show misleading numbers; jump-to-
+    // error-line (onJumpError) uses setSelectionRange, not the gutter, so it
+    // keeps working either way.
+    const showGutter = showLN && !S.softWrap;
 
     const themeVars = {
       '--bg': tok.bg, '--panel': tok.panel, '--panel-2': tok.panel2, '--elev': tok.elev,
@@ -2667,6 +2682,7 @@ class Component extends DCLogic {
     const model = this.buildModel();
     const parsed = model.parsed;
     const node = model.node;
+    const hasHeaderRow = model.hasHeaderRow; // toggling this rebuilds `node` without changing docInput, so every cache below keyed on docInput must include it too
     const isJson = parsed.format === 'json';
     const isXml = parsed.format === 'xml';
     const isTable = parsed.format === 'table';
@@ -2683,8 +2699,8 @@ class Component extends DCLogic {
     // search context (cached on input+term)
     const savedTerm = S.search.trim();
     const term = S.explorerMode === 'search' ? savedTerm : '';
-    if (!this._matchCache || this._matchCache.input !== S.docInput || this._matchCache.term !== term) {
-      this._matchCache = { input: S.docInput, term, matches: term ? this.collectMatches(node, term) : [] };
+    if (!this._matchCache || this._matchCache.input !== S.docInput || this._matchCache.term !== term || this._matchCache.hasHeaderRow !== hasHeaderRow) {
+      this._matchCache = { input: S.docInput, term, hasHeaderRow, matches: term ? this.collectMatches(node, term) : [] };
     }
     const matches = this._matchCache.matches;
     const searchFilterActive = S.explorerMode === 'search' && S.searchMode === 'filter' && !!term;
@@ -2808,7 +2824,7 @@ class Component extends DCLogic {
       const filter = searchFilterActive || (S.explorerMode === 'query' && queryKeepPaths.size > 0);
       const tableSourceNode = node ? (this.locateNode(node, S.tableSourcePath) || node) : null;
       const tableSourcePath = tableSourceNode ? tableSourceNode.path : '';
-      const tableCacheKey = S.docInput + '|' + tableMode + '|' + tableSourcePath + '|' + term + '|' + S.searchMode + '|' + (S.explorerMode === 'query' ? query : '');
+      const tableCacheKey = S.docInput + '|' + tableMode + '|' + tableSourcePath + '|' + term + '|' + S.searchMode + '|' + (S.explorerMode === 'query' ? query : '') + '|' + hasHeaderRow;
       if (!this._tableCache || this._tableCache.cacheKey !== tableCacheKey) {
         const res = tableMode === 'record'
           ? this.recordTableRows(tableSourceNode, parsed, { term: searchTerm, filter, keep: filterKeepPaths, pathFilter: S.explorerMode === 'query' && queryKeepPaths.size > 0 })
@@ -2937,9 +2953,9 @@ class Component extends DCLogic {
       explorerEl = h('div', { style: { padding: '28px 24px', color: tok.textFaint, font: '500 13px/1.6 ' + tok.fontUi } }, parsed.empty ? 'Nothing to explore yet. Paste JSON or XML, drop a file, or load the sample to build an interactive tree.' : h('span', {}, h('span', { style: { color: tok.sem.err, fontWeight: 700 } }, 'Can\u2019t build tree. '), 'Fix the ' + (parsed.format || '').toUpperCase() + ' error on the left \u2014 the tree updates live once it\u2019s valid.'));
     } else {
       const filter = searchFilterActive || (S.explorerMode === 'query' && queryKeepPaths.size > 0);
-      if (!this._flatCache || this._flatCache.input !== S.docInput || this._flatCache.collapsed !== S.collapsed || this._flatCache.term !== term || this._flatCache.mode !== S.searchMode || this._flatCache.query !== (S.explorerMode === 'query' ? query : '')) {
+      if (!this._flatCache || this._flatCache.input !== S.docInput || this._flatCache.collapsed !== S.collapsed || this._flatCache.term !== term || this._flatCache.mode !== S.searchMode || this._flatCache.query !== (S.explorerMode === 'query' ? query : '') || this._flatCache.hasHeaderRow !== hasHeaderRow) {
         const keep = searchFilterActive ? searchKeepPaths : queryKeepPaths;
-        this._flatCache = { input: S.docInput, collapsed: S.collapsed, term, mode: S.searchMode, query: S.explorerMode === 'query' ? query : '', rows: this.flatten(node, { filter, keep, collapsed: S.collapsed }) };
+        this._flatCache = { input: S.docInput, collapsed: S.collapsed, term, mode: S.searchMode, query: S.explorerMode === 'query' ? query : '', hasHeaderRow, rows: this.flatten(node, { filter, keep, collapsed: S.collapsed }) };
       }
       const rows = this._flatCache.rows;
       this._activeRowIndex = -1;
@@ -2949,7 +2965,7 @@ class Component extends DCLogic {
     }
 
     // stats (cached on input)
-    if (!this._statsCache || this._statsCache.input !== S.docInput) this._statsCache = { input: S.docInput, st: this.stats(node, S.docInput) };
+    if (!this._statsCache || this._statsCache.input !== S.docInput || this._statsCache.hasHeaderRow !== hasHeaderRow) this._statsCache = { input: S.docInput, hasHeaderRow, st: this.stats(node, S.docInput) };
     const st = this._statsCache.st;
     const chip = (label, val, color) => h('div', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '999px', background: tok.elev, border: '1px solid ' + tok.border, whiteSpace: 'nowrap', flex: '0 0 auto' } },
       h('span', { style: { font: '500 11px/1 ' + tok.fontUi, color: tok.textFaint } }, label),
@@ -3101,6 +3117,7 @@ class Component extends DCLogic {
 
       btnStyle, fsBtnStyle, btnHover, btnGhost, navBtnStyle,
       formatBadge: parsed.format === 'empty' ? 'EMPTY' : parsed.format.toUpperCase(), badgeStyle,
+      isTable, canReformatFormat: !isTable, // Beautify/Minify/Sort keys/Convert have no meaning for raw tabular text (dc-runtime's sc-if has no `!` operator, so negate here)
       input: S.input, onInput: (e) => {
         const val = e.target.value;
         // Keep the controlled textarea in sync on every keystroke so caret position stays stable.
@@ -3114,7 +3131,8 @@ class Component extends DCLogic {
       onEditorScroll: (e) => this.syncEditorLayers(e.target),
       editorRef: this.editorRef, highlightRef: this.highlightRef, gutterRef: this.gutterRef, fileRef: this.fileRef, dropRef: this.dropRef, treeScrollRef: this.treeScrollRef,
       highlightEl, highlightStyle, gutterText, taStyle,
-      gutterWrapStyle: { flex: '0 0 auto', width: showLN ? '52px' : '0', overflow: 'hidden', borderRight: showLN ? '1px solid ' + tok.border : 'none', background: tok.panel2, display: showLN ? 'block' : 'none' },
+      gutterWrapStyle: { flex: '0 0 auto', width: showGutter ? '52px' : '0', overflow: 'hidden', borderRight: showGutter ? '1px solid ' + tok.border : 'none', background: tok.panel2, display: showGutter ? 'block' : 'none' },
+      gutterTitle: S.softWrap ? 'Line numbers hidden while Wrap is on (they can’t stay aligned to wrapped text)' : '',
       indent: S.indent, onIndentChange: (e) => this.setState({ indent: e.target.value }),
       beautifyMenuRef: this.beautifyMenuRef,
       showBeautifyMenu: S.showBeautifyMenu,
@@ -3126,6 +3144,8 @@ class Component extends DCLogic {
       onBeautifyIndent4: () => this.setState({ indent: '4', showBeautifyMenu: false }, () => this.reformat(false)),
       onBeautifyIndentTab: () => this.setState({ indent: 'tab', showBeautifyMenu: false }, () => this.reformat(false)),
       wrapLabel: S.softWrap ? 'Wrap: On' : 'Wrap: Off',
+      tableHeaderRowLabel: (S.tableHasHeaderRow !== false) ? 'Header row: On' : 'Header row: Off',
+      onToggleTableHeaderRow: () => this.setState(s => ({ tableHasHeaderRow: !(s.tableHasHeaderRow !== false) })),
       onToggleWrap: () => this.setState(s => ({ softWrap: !s.softWrap })),
       onBeautify: () => this.reformat(false), onMinify: () => this.reformat(true), onSort: () => this.sortKeys(),
       onConvert: () => this.convert(), convertLabel: isXml ? 'To JSON' : 'To XML',
@@ -3177,8 +3197,9 @@ class Component extends DCLogic {
 
       diffA: S.diffA, diffB: S.diffB,
       onDiffAChange: (e) => this.setState({ diffA: e.target.value }), onDiffBChange: (e) => this.setState({ diffB: e.target.value }),
+      onDiffAClear: () => this.setState({ diffA: '' }), onDiffBClear: () => this.setState({ diffB: '' }),
       onDiffBeautify: () => { const nb = t => { const p = this.parse(t); return p.ok && p.format === 'json' ? JSON.stringify(p.value, null, 2) : (p.ok && p.format === 'xml' ? this.prettyXml(p.doc) : t); }; this.setState({ diffA: nb(S.diffA), diffB: nb(S.diffB) }); },
-      onDiffSwap: () => this.setState({ diffA: S.diffB, diffB: S.diffA }),
+      onDiffSwap: () => this.setState(prevState => ({ diffA: prevState.diffB, diffB: prevState.diffA })),
       onDiffSample: () => this.setState({ diffA: SAMPLE_DIFF_A, diffB: SAMPLE_DIFF_B }),
       diffBothTable: diff.bothTable,
       diffAlignTitle: 'Diff by a guessed key column (sys_id, correlation_id, ...) instead of line order, so reordered/paged exports still diff sensibly',
@@ -3239,6 +3260,7 @@ class Component extends DCLogic {
       onSanitizeToggleSaveManual: () => this.setState(s => ({ sanitizeSaveManualAsRule: !s.sanitizeSaveManualAsRule })),
       onSanitizeSample: () => this.setSanitizeInput(SAMPLE_SANITIZE),
       onSanitizeClear: () => this.setSanitizeInput(''),
+      onSanitizeInputClear: () => this.setSanitizeInput(''),
       sanitizeProfileSelectorEl,
       sanitizeOutput,
       onCopySanitizeOutput: () => this.copy(sanitizeOutput, '__sanitize'),
