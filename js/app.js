@@ -252,6 +252,7 @@ class Component extends DCLogic {
       sanitizeOverrides: {},
       sanitizeManualRules: [],
       sanitizeSelection: null,
+      sanitizeAutoDetectNotice: null, // transient "this already matches rule X" message after clicking Auto-detect
       sanitizeSaveManualAsRule: false,
       showSanitizeRules: false,
       sanitizeRulesImportError: null,
@@ -1855,13 +1856,13 @@ class Component extends DCLogic {
   // that are expected to differ between two troubleshooting runs
   // (timestamps, hex32 sys_ids, GUIDs, millisecond durations) so the diff
   // surfaces the actual behavioral change instead of every timestamp.
-  // Informed by the same value shapes Bury's ServiceNow pattern rules
-  // target, but implemented standalone since diff normalization just needs
-  // *a* consistent placeholder per shape, not Bury's deterministic
-  // real->fake mapping.
+  // Timestamp matching is shared with Bury's shape classifier via
+  // window.PAW_SANITIZE.denoiseTimestamps (js/sanitize.js) so "what does a
+  // timestamp look like" isn't maintained twice; GUID/hex32/duration stay
+  // local since those placeholders are Spot-specific.
   denoiseForDiff(text) {
-    return String(text)
-      .replace(/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?\b/g, '<TIMESTAMP>')
+    const withTimestamps = window.PAW_SANITIZE.denoiseTimestamps(String(text));
+    return withTimestamps
       .replace(/\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g, '<GUID>')
       .replace(/\b[0-9a-fA-F]{32}\b/g, '<ID>')
       .replace(/\b\d+\s?ms\b/g, '<DURATION>');
@@ -2043,7 +2044,7 @@ class Component extends DCLogic {
   }
 
   setSanitizeInput(text) {
-    this.setState({ sanitizeInput: text, sanitizeOverrides: {}, sanitizeManualRules: [], sanitizeSelection: null });
+    this.setState({ sanitizeInput: text, sanitizeOverrides: {}, sanitizeManualRules: [], sanitizeSelection: null, sanitizeAutoDetectNotice: null });
   }
 
   // ---------- cross-mode hand-off (Round 4) ----------
@@ -2138,6 +2139,36 @@ class Component extends DCLogic {
       window.PAW_SANITIZE.updateProfileOverride(profileId, (profile) => { profile.patternRules = (profile.patternRules || []).concat(rule); });
     }
     this.setState(s => ({ sanitizeManualRules: s.sanitizeManualRules.concat(rule), sanitizeSelection: null }));
+  }
+
+  // Peer of markSanitizeSelectionRedact() — guesses the selected text's
+  // *shape* instead of matching it literally. Opens the existing rule-
+  // editor form pre-filled for review/Save rather than applying
+  // immediately, since a shape guess is an unanchored regex that could
+  // over-match many unrelated values (a wrong literal match only ever
+  // matches that one exact string).
+  startAutoDetectSanitizeRule() {
+    const S = this.state;
+    const sel = S.sanitizeSelection;
+    if (!sel || sel.start === sel.end) return;
+    const text = S.sanitizeInput.slice(sel.start, sel.end);
+    if (!text.trim()) return;
+    const profile = this.getSanitizeProfile();
+    const existingRules = (profile.patternRules || []).concat(S.sanitizeManualRules);
+    const detection = window.PAW_SANITIZE.detectPatternForValue(text, existingRules);
+    if (!detection) return;
+    if (detection.type === 'existing') {
+      this.setState({ sanitizeAutoDetectNotice: 'This already matches the "' + detection.rule.label + '" rule.', sanitizeSelection: null });
+      return;
+    }
+    this.setState({
+      sanitizeRuleEditing: { section: 'pattern', index: null },
+      sanitizeRuleDraft: { label: detection.label, pattern: detection.pattern, generator: detection.generator },
+      sanitizeRuleError: null,
+      showSanitizeRules: true,
+      sanitizeAutoDetectNotice: null,
+      sanitizeSelection: null,
+    });
   }
 
   onClearSanitizeMappings() {
@@ -3255,6 +3286,10 @@ class Component extends DCLogic {
       sanitizeHasSelection: !!S.sanitizeSelection,
       onSanitizeMarkRedact: () => this.markSanitizeSelectionRedact(),
       sanitizeMarkBtnStyle: S.sanitizeSelection ? btnStyle : Object.assign({}, btnStyle, { opacity: .45, cursor: 'default' }),
+      onSanitizeAutoDetect: () => this.startAutoDetectSanitizeRule(),
+      sanitizeAutoDetectBtnStyle: S.sanitizeSelection ? btnStyle : Object.assign({}, btnStyle, { opacity: .45, cursor: 'default' }),
+      sanitizeAutoDetectNotice: S.sanitizeAutoDetectNotice,
+      onDismissSanitizeAutoDetectNotice: () => this.setState({ sanitizeAutoDetectNotice: null }),
       sanitizeSaveManualToggleStyle: rememberToggleStyle(S.sanitizeSaveManualAsRule),
       sanitizeSaveManualLabel: S.sanitizeSaveManualAsRule ? 'On' : 'Off',
       onSanitizeToggleSaveManual: () => this.setState(s => ({ sanitizeSaveManualAsRule: !s.sanitizeSaveManualAsRule })),
