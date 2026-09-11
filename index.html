@@ -358,6 +358,7 @@
 
     <div class="rf-sanitize-toolbar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <button style="{{ sanitizeMarkBtnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSanitizeMarkRedact }}">{{ iconPencil }}Mark selection as always-redact</button>
+      <button style="{{ sanitizeAutoDetectBtnStyle }}" style-hover="{{ btnHover }}" onclick="{{ onSanitizeAutoDetect }}">{{ iconWand }}Auto-detect pattern for selection</button>
       <span style="display:inline-flex;align-items:center;gap:6px;font:500 11.5px/1 var(--font-ui);color:var(--text-dim,#565d73)">
         Save as rule
         <button style="{{ sanitizeSaveManualToggleStyle }}" onclick="{{ onSanitizeToggleSaveManual }}">{{ sanitizeSaveManualLabel }}</button>
@@ -366,6 +367,13 @@
       <span style="font:500 11.5px/1 var(--font-ui);color:var(--text-faint,#9096ac)">{{ sanitizeMappedCount }} value(s) mapped this session</span>
       <button style="{{ btnGhost }}" style-hover="{{ btnHover }}" onclick="{{ onClearSanitizeMappings }}">{{ iconTrash }}Clear mappings</button>
     </div>
+
+    <sc-if value="{{ sanitizeAutoDetectNotice }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:8px;margin:0 0 4px;padding:6px 10px;border-radius:8px;background:var(--accent-weak,rgba(109,94,252,.11));color:var(--text,#1b1e2b);font:500 12px/1.4 var(--font-ui)">
+        <span style="flex:1">{{ sanitizeAutoDetectNotice }}</span>
+        <button onclick="{{ onDismissSanitizeAutoDetectNotice }}" style="border:none;background:transparent;color:inherit;cursor:pointer;font:600 12px/1 var(--font-ui)">×</button>
+      </div>
+    </sc-if>
 
     <div class="{{ sanitizeGridClass }}" style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:14px">
       <section class="{{ sanitizeInputPanelClass }}" style="display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel,#fff);border:1px solid var(--border,#e3e6ef);border-radius:var(--radius,12px);overflow:hidden;box-shadow:var(--shadow,none)">
