@@ -390,9 +390,10 @@
   // Top-level: detect + run a profile against pasted input
   // ============================================================
 
-  // parseFns: { parseJSON(text), parseXML(text), rootNode(parsed) } — the
-  // exact functions app.js's Component already uses (bind them with `.bind(this)`
-  // when calling in from app.js), so parsing/tree-building is never duplicated here.
+  // parseFns: { parseJSON(text), parseXML(text), parseTable(text), rootNode(parsed) }
+  // — the exact functions app.js's Component already uses (bind them with
+  // `.bind(this)` when calling in from app.js), so parsing/tree-building is
+  // never duplicated here.
   function analyze(text, profile, mapping, parseFns) {
     var src = String(text || '');
     var trimmed = src.trim();
@@ -400,6 +401,17 @@
 
     var idCounter = 0;
     function nextId() { return 'm' + (idCounter++); }
+
+    // CSV/TSV/Markdown-table input (e.g. a ServiceNow list-view export
+    // copied via snutils): checked before the freeform fallback so a
+    // column-header KeyRule (sys_id, caller_id, ...) matches a column name
+    // the same way it matches a JSON key. Not checked ahead of JSON/XML
+    // since those are unambiguous once they parse; a table only wins here
+    // when the input isn't valid JSON/XML to begin with.
+    if (trimmed[0] !== '{' && trimmed[0] !== '[' && trimmed[0] !== '<' && parseFns.parseTable) {
+      var pt = parseFns.parseTable(src);
+      if (pt.ok) return analyzeStructural(src, pt, profile, mapping, parseFns, nextId);
+    }
 
     if (trimmed[0] === '{' || trimmed[0] === '[') {
       var pj = parseFns.parseJSON(src);
@@ -506,6 +518,13 @@
     }
     if (runResult.format === 'xml') {
       return serializeXml(applyReplacementsXml(runResult.parsed.doc, matches));
+    }
+    if (runResult.format === 'table') {
+      // applyReplacementsJson works unchanged here: a parsed table's value
+      // is a plain array-of-objects, the same shape a JSON array clones/
+      // patches-by-path. Only the final serialization step is table-specific.
+      var replaced = applyReplacementsJson(runResult.parsed.value, matches);
+      return window.PAW_TABLE.serialize(replaced, runResult.parsed.tableMeta);
     }
     if (runResult.format === 'freeform') {
       return renderFreeformOutput(src, runResult, matches);
