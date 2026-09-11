@@ -19,6 +19,56 @@
   var MAPPING_LS_KEY = 'paw.sanitize.mapping.v1';
 
   // ============================================================
+  // Timestamp shape catalogue — shared source of truth for Spot's
+  // denoiseForDiff() noise-suppression (js/app.js) and Bury's
+  // detectPatternForValue() shape classifier (below), so "what does a
+  // timestamp look like" isn't maintained twice. Patterns are plain regex
+  // source strings (no flags baked in — callers add 'g'/'gi' as needed).
+  // Deliberately does not match bare epoch/Unix numbers (a 10-13 digit
+  // number is indistinguishable from an ordinary numeric ID).
+  // ============================================================
+
+  var MONTH_NAME_RE = '(?:[Jj]an(?:uary)?|[Ff]eb(?:ruary)?|[Mm]ar(?:ch)?|[Aa]pr(?:il)?|[Mm]ay|[Jj]un(?:e)?|[Jj]ul(?:y)?|[Aa]ug(?:ust)?|[Ss]ep(?:t|tember)?|[Oo]ct(?:ober)?|[Nn]ov(?:ember)?|[Dd]ec(?:ember)?)';
+
+  var TIMESTAMP_PATTERNS = {
+    absolute: [
+      // Order matters: datetime-with-time variants before their bare-date
+      // counterparts, so a full timestamp's date portion isn't left over
+      // for the date-only pattern to re-match on a later pass.
+      { id: 'ts-iso', label: 'ISO timestamp', pattern: '\\b\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?\\b' },
+      { id: 'ts-us-ampm', label: 'US date + 12h time', pattern: '\\b\\d{1,2}\\/\\d{1,2}\\/\\d{4}[, ]+\\d{1,2}:\\d{2}(?::\\d{2})?\\s?[AaPp][Mm]\\b' },
+      { id: 'ts-month-name', label: 'Month-name date/time', pattern: '\\b' + MONTH_NAME_RE + '\\.?\\s+\\d{1,2},?\\s+\\d{4}(?:[, ]+\\d{1,2}:\\d{2}(?::\\d{2})?\\s?[AaPp][Mm]?)?\\b' },
+      { id: 'ts-iso-date', label: 'ISO date (no time)', pattern: '\\b\\d{4}-\\d{2}-\\d{2}\\b' },
+      { id: 'ts-us-date', label: 'US date (no time)', pattern: '\\b\\d{1,2}\\/\\d{1,2}\\/\\d{4}\\b' },
+    ],
+    relative: {
+      id: 'ts-relative', label: 'Relative time',
+      // \b can't anchor immediately before '~' (not a word char), so the
+      // optional qualifier and the core phrase get their own \b anchors
+      // rather than sharing one leading \b — otherwise a "~5 minutes ago"
+      // selection would leave the '~' behind, unmatched.
+      pattern: '(?:\\b(?:about|approximately)\\s+|~\\s*)?\\b(?:just now|\\d+\\s?(?:sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|wk|wks|week|weeks|mon|mons|month|months|yr|yrs|year|years)\\s+ago)\\b',
+    },
+  };
+
+  // Chained /g replace passes: absolute patterns first (in order above),
+  // then the relative pattern. This naturally composes for "absolute +
+  // trailing relative" strings without one monster regex —
+  // "09/10/2026 02:03:43 PM about 16 hours ago"
+  //   -> (ts-us-ampm pass) -> "<TIMESTAMP> about 16 hours ago"
+  //   -> (relative pass)   -> "<TIMESTAMP> <RELATIVE_TIME>"
+  // — and correctly handles a standalone relative phrase with no leading
+  // absolute stamp too ("2 hours ago" -> "<RELATIVE_TIME>").
+  function denoiseTimestamps(text) {
+    var out = String(text);
+    TIMESTAMP_PATTERNS.absolute.forEach(function (p) {
+      try { out = out.replace(new RegExp(p.pattern, 'gi'), '<TIMESTAMP>'); } catch (e) {}
+    });
+    try { out = out.replace(new RegExp(TIMESTAMP_PATTERNS.relative.pattern, 'gi'), '<RELATIVE_TIME>'); } catch (e) {}
+    return out;
+  }
+
+  // ============================================================
   // Rule matching
   // ============================================================
 
@@ -246,11 +296,134 @@
         return upper ? letter.toUpperCase() : letter;
       });
     },
+    timestamp: function (original) {
+      // Randomizes digits only, leaves every separator/letter (slashes,
+      // colons, AM/PM, month names, "ago"/"hours") exactly as-is — same
+      // trade-off ssn/phone/creditCard already make (may occasionally
+      // produce a not-quite-valid calendar date; accepted, no real date
+      // arithmetic needed for a fake placeholder value).
+      var rand = mulberry32(hashStr(original));
+      var s = String(original);
+      var di = 0;
+      var digits = randomDigits((s.match(/\d/g) || []).length, rand);
+      return s.replace(/\d/g, function () { return digits[di++]; });
+    },
+    url: function (original) {
+      var rand = mulberry32(hashStr(original));
+      var s = String(original);
+      var m = s.match(/^(https?:\/\/)([^\/?#]+)([\s\S]*)$/i);
+      if (!m) return GENERATORS.generic(original);
+      var domainWord = DOMAIN_WORDS[Math.floor(rand() * DOMAIN_WORDS.length)];
+      var tldMatch = m[2].match(/\.([A-Za-z]{2,})$/);
+      var tld = tldMatch ? tldMatch[1] : 'com';
+      var fakeRest = m[3].replace(/[A-Za-z0-9]/g, function (ch) {
+        var upper = ch === ch.toUpperCase();
+        return /[0-9]/.test(ch) ? String(Math.floor(rand() * 10)) : (upper ? String.fromCharCode(65 + Math.floor(rand() * 26)) : String.fromCharCode(97 + Math.floor(rand() * 26)));
+      });
+      return m[1] + domainWord + '.' + tld + fakeRest;
+    },
+    ipv6: function (original) {
+      var rand = mulberry32(hashStr(original));
+      return String(original).replace(/[0-9a-fA-F]{1,4}/g, function (seg) { return randomHex(seg.length, rand); });
+    },
+    mac: function (original) {
+      var rand = mulberry32(hashStr(original));
+      return String(original).replace(/[0-9A-Fa-f]{2}/g, function () { return randomHex(2, rand); });
+    },
   };
 
   function generateFake(original, rule) {
     var gen = GENERATORS[(rule && rule.generator) || 'generic'] || GENERATORS.generic;
     return gen(original);
+  }
+
+  // ============================================================
+  // Selection -> pattern shape detection ("auto-detect pattern" for Bury's
+  // selected-text toolbar). Pure/stateless: takes the selected text and the
+  // active profile's current pattern rules (base + any session-only manual
+  // ones), returns either "this already matches an existing rule" or a
+  // {label, pattern, generator} draft for a new PatternRule. No app.js/DOM
+  // coupling, so it's unit-testable the same way as the rest of this file.
+  // ============================================================
+
+  function testWholeMatch(pattern, text) {
+    try { return new RegExp('^(?:' + pattern + ')$', 'i').test(text); } catch (e) { return false; }
+  }
+
+  function escapeRegExpSource(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // Shipped-shape patterns copied verbatim from sanitize-rules-default.js
+  // where one already exists, so a detection and its shipped counterpart
+  // always agree byte-for-byte; IPv6/MAC/URL fill gaps nothing ships yet.
+  var SHAPE_CANDIDATES = [
+    { label: 'GUID', pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', generator: 'guid' },
+    { label: '32-char hex ID', pattern: '\\b[0-9a-fA-F]{32}\\b', generator: 'hex32' },
+    { label: 'Email', pattern: '[\\w.+-]+@[\\w-]+\\.[A-Za-z]{2,}', generator: 'email' },
+    // Lookaround, not \b, at the edges: an IPv6 address can legitimately
+    // start/end with ':' (e.g. "::1"), and \b can never anchor right at a
+    // position where the pattern's own first/last char is non-word (':').
+    { label: 'IPv6 address', pattern: '(?<![0-9a-fA-F:])(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}|::)(?![0-9a-fA-F:])', generator: 'ipv6' },
+    { label: 'IPv4 address', pattern: '\\b(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\b', generator: 'ipv4' },
+    { label: 'MAC address', pattern: '\\b[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}\\b', generator: 'mac' },
+    { label: 'SSN', pattern: '\\b\\d{3}-\\d{2}-\\d{4}\\b', generator: 'ssn' },
+    { label: 'Credit card', pattern: '\\b(?:\\d[ -]?){15,16}\\b', generator: 'creditCard' },
+    { label: 'Phone number', pattern: '\\+?1?[\\s.-]?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}\\b', generator: 'phone' },
+    { label: 'URL', pattern: 'https?:\\/\\/[^\\s"\'<>]+', generator: 'url' },
+  ];
+
+  // Structure-preserving fallback for values matching no known shape:
+  // alternates class+length per contiguous digit/letter run, escapes
+  // everything else literally (e.g. "INC0012345" -> [A-Za-z]{3}\d{7})
+  // rather than degrading to an exact literal (that's what "Mark selection
+  // as always-redact" is already for).
+  function genericShapeFallback(text) {
+    var n = text.length;
+    if (/^\d+$/.test(text)) return { label: n + '-digit number', pattern: '\\b\\d{' + n + '}\\b', generator: 'numericId' };
+    if (/^[0-9a-fA-F]+$/.test(text)) return { label: n + '-char hex value', pattern: '\\b[0-9a-fA-F]{' + n + '}\\b', generator: 'hex32' };
+    if (/^[A-Za-z0-9]+$/.test(text)) return { label: n + '-char alphanumeric ID', pattern: '\\b[A-Za-z0-9]{' + n + '}\\b', generator: 'generic' };
+    var pattern = '';
+    (text.match(/\d+|[A-Za-z]+|[^A-Za-z0-9]+/g) || []).forEach(function (run) {
+      if (/^\d+$/.test(run)) pattern += '\\d{' + run.length + '}';
+      else if (/^[A-Za-z]+$/.test(run)) pattern += '[A-Za-z]{' + run.length + '}';
+      else pattern += escapeRegExpSource(run);
+    });
+    return { label: 'Custom shape (' + n + ' chars)', pattern: pattern, generator: 'generic' };
+  }
+
+  // existingPatternRules: active profile's patternRules + session manual
+  // rules (caller's job to assemble — same list getSanitizeRun() runs).
+  function detectPatternForValue(text, existingPatternRules) {
+    var raw = String(text || '');
+    if (!raw.trim()) return null;
+
+    var existing = (existingPatternRules || []).filter(function (r) { return testWholeMatch(r.pattern, raw); })[0];
+    if (existing) return { type: 'existing', rule: existing };
+
+    // Each absolute pattern is tried with an optional trailing relative-time
+    // suffix baked in (not just on its own) — a selection often spans the
+    // *whole* displayed value, e.g. ServiceNow's own
+    // "09/10/2026 02:20:40 PM about 16 hours ago", and the saved rule needs
+    // to match that whole shape (with or without the suffix present), not
+    // just the absolute portion alone.
+    var relSuffix = '(?:\\s+' + TIMESTAMP_PATTERNS.relative.pattern + ')?';
+    for (var i = 0; i < TIMESTAMP_PATTERNS.absolute.length; i++) {
+      var tp = TIMESTAMP_PATTERNS.absolute[i];
+      var combined = tp.pattern + relSuffix;
+      if (testWholeMatch(combined, raw)) {
+        var hasRelative = testWholeMatch(TIMESTAMP_PATTERNS.relative.pattern, raw.replace(new RegExp('^(?:' + tp.pattern + ')\\s*', 'i'), ''));
+        return { type: 'shape', label: 'Timestamp (' + tp.label + (hasRelative ? ' + relative' : '') + ')', pattern: combined, generator: 'timestamp' };
+      }
+    }
+    if (testWholeMatch(TIMESTAMP_PATTERNS.relative.pattern, raw)) {
+      return { type: 'shape', label: 'Relative time', pattern: TIMESTAMP_PATTERNS.relative.pattern, generator: 'timestamp' };
+    }
+    for (var j = 0; j < SHAPE_CANDIDATES.length; j++) {
+      var c = SHAPE_CANDIDATES[j];
+      if (testWholeMatch(c.pattern, raw)) return { type: 'shape', label: c.label, pattern: c.pattern, generator: c.generator };
+    }
+    return Object.assign({ type: 'fallback' }, genericShapeFallback(raw));
   }
 
   // mapping: { map: Map<original(string) -> fake(string)> }
@@ -743,5 +916,8 @@
     saveMapping: saveMapping,
     clearMapping: clearMapping,
     generatorNames: Object.keys(GENERATORS),
+    TIMESTAMP_PATTERNS: TIMESTAMP_PATTERNS,
+    denoiseTimestamps: denoiseTimestamps,
+    detectPatternForValue: detectPatternForValue,
   };
 })();
