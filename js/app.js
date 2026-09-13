@@ -17,12 +17,17 @@ const SAMPLE_JSON = `{
 }`;
 
 const SAMPLE_SANITIZE = `{
+  "number": "INC0010042",
   "sys_id": "8a92cfae1b3a4a1084b1e1c4f2b3d4e5",
   "caller_id": "8a92cfae1b3a4a1084b1e1c4f2b3d4e5",
   "opened_by": "Jane Doe",
+  "assigned_to": "Marcus Chen",
   "u_phone": "(555) 123-4567",
-  "short_description": "VPN client won't connect",
-  "notes": "Caller reported the issue after contacting jane.doe@example.com from 192.168.1.42."
+  "contact_email": "jane.doe@example.com",
+  "account": "Initech Holdings",
+  "correlation_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "short_description": "VPN client won't connect from home office",
+  "work_notes": "Escalated to network after confirming the caller's laptop (10.20.4.17) can't reach the VPN gateway. Callback number on file is (555) 987-6543. Unrelated: caller's badge 512-00-4471 was flagged at the lobby kiosk -- logging for reference only."
 }`;
 
 const SAMPLE_DIFF_A = SAMPLE_JSON;
