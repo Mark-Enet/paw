@@ -17,12 +17,17 @@ const SAMPLE_JSON = `{
 }`;
 
 const SAMPLE_SANITIZE = `{
+  "number": "INC0010042",
   "sys_id": "8a92cfae1b3a4a1084b1e1c4f2b3d4e5",
   "caller_id": "8a92cfae1b3a4a1084b1e1c4f2b3d4e5",
   "opened_by": "Jane Doe",
+  "assigned_to": "Marcus Chen",
   "u_phone": "(555) 123-4567",
-  "short_description": "VPN client won't connect",
-  "notes": "Caller reported the issue after contacting jane.doe@example.com from 192.168.1.42."
+  "contact_email": "jane.doe@example.com",
+  "account": "Initech Holdings",
+  "correlation_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "short_description": "VPN client won't connect from home office",
+  "work_notes": "Escalated to network after confirming the caller's laptop (10.20.4.17) can't reach the VPN gateway. Callback number on file is (555) 987-6543. Unrelated: caller's badge 512-00-4471 was flagged at the lobby kiosk -- logging for reference only."
 }`;
 
 const SAMPLE_DIFF_A = SAMPLE_JSON;
@@ -92,7 +97,7 @@ const INDEXED_SEG_RE = /\[\d+\]/;
 const TABLE_JSON_MAX_DEPTH = 2;
 const TABLE_XML_MIN_SUITABLE_ROWS = 1;
 const MAX_PERSIST = 500000;
-const SOURCE_NAME_MAX_LEN = 160;
+const LIBRARY_NAME_MAX_LEN = 160; // formerly SOURCE_NAME_MAX_LEN; now the Save As/Rename name ceiling
 const APP_META_DEFAULT = Object.freeze({
   appName: 'PAW',
   tagline: 'PAYLOAD ANALYSIS WINGMAN',
@@ -165,6 +170,42 @@ function isApplePlatform() {
   return /mac|iphone|ipad|ipod/.test(s);
 }
 
+// Mirrors Component#detect()'s logic (js/app.js, method body below) so a
+// library record's format can be tagged from loadPersisted()/migration,
+// which run before the component instance (and its `this.detect`) exists.
+// Shares the same fallback-to-'json' quirk for freeform/log text on purpose
+// — the two should tag identical content identically.
+function detectFormatForLibrary(text) {
+  const t = (text || '').trim();
+  if (!t) return 'json';
+  if (t[0] === '<') return 'xml';
+  if (t[0] === '{' || t[0] === '[') return 'json';
+  if (window.PAW_TABLE && window.PAW_TABLE.detect(t)) return 'table';
+  return 'json';
+}
+
+const LIBRARY_SLOTS = ['dig', 'spotA', 'spotB', 'bury'];
+
+function formatByteSize(b) {
+  return b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(2) + ' MB';
+}
+
+function defaultLibraryLinks() {
+  return { dig: { id: null, dirty: false }, spotA: { id: null, dirty: false }, spotB: { id: null, dirty: false }, bury: { id: null, dirty: false } };
+}
+
+function sanitizeLibraryLinks(raw) {
+  const base = defaultLibraryLinks();
+  if (!raw || typeof raw !== 'object') return base;
+  LIBRARY_SLOTS.forEach((slot) => {
+    const link = raw[slot];
+    if (link && typeof link === 'object' && (typeof link.id === 'string' || link.id === null) && typeof link.dirty === 'boolean') {
+      base[slot] = { id: link.id, dirty: link.dirty };
+    }
+  });
+  return base;
+}
+
 function loadPersisted() {
   let data = {};
   try { const raw = localStorage.getItem(LS_KEY); if (raw) data = JSON.parse(raw) || {}; } catch (e) {}
@@ -175,9 +216,25 @@ function loadPersisted() {
       if (d && typeof d === 'object') data = Object.assign({}, data, d);
     }
   } catch (e) {}
+
+  // One-time upgrade: fold any pre-existing single-slot content into the
+  // user's first Payload Library records before that content's own name
+  // (the old, Dig-only `sourceName`) is discarded below. No-ops (returns
+  // null) once the library has been created at all, so this never re-runs.
+  let migratedLinks = null;
+  try {
+    if (window.PAW_LIBRARY) {
+      migratedLinks = window.PAW_LIBRARY.migrateLegacyIfNeeded(
+        { input: data.input, diffA: data.diffA, diffB: data.diffB, sourceName: data.sourceName },
+        { sampleDiffA: SAMPLE_DIFF_A, sampleDiffB: SAMPLE_DIFF_B, detectFormat: detectFormatForLibrary }
+      );
+    }
+  } catch (e) {}
+
   if (data && typeof data.input === 'string' && data.input.length > MAX_PERSIST) delete data.input;
   if (data && typeof data.diffA === 'string' && data.diffA.length > MAX_PERSIST) delete data.diffA;
   if (data && typeof data.diffB === 'string' && data.diffB.length > MAX_PERSIST) delete data.diffB;
+  if (data && typeof data.sanitizeInput === 'string' && data.sanitizeInput.length > MAX_PERSIST) delete data.sanitizeInput;
   if (data.mode !== 'format' && data.mode !== 'diff' && data.mode !== 'sanitize') delete data.mode;
   if (data.theme !== 'light' && data.theme !== 'dark') delete data.theme;
   if (data.direction !== 'aurora' && data.direction !== 'slate' && data.direction !== 'paper') delete data.direction;
@@ -191,12 +248,9 @@ function loadPersisted() {
   if (data.tableMode !== 'path' && data.tableMode !== 'record') delete data.tableMode;
   if (typeof data.tableSourcePath !== 'string') delete data.tableSourcePath;
   if (typeof data.tableHasHeaderRow !== 'boolean') delete data.tableHasHeaderRow;
-  if (typeof data.sourceName !== 'string') delete data.sourceName;
-  else {
-    data.sourceName = data.sourceName.trim().slice(0, SOURCE_NAME_MAX_LEN);
-    if (!data.sourceName) delete data.sourceName;
-  }
-  if (typeof data.input === 'string' && !data.input.trim()) delete data.sourceName;
+  delete data.sourceName; // retired in favor of per-slot Payload Library links
+  data.libraryLinks = sanitizeLibraryLinks(data.libraryLinks);
+  if (migratedLinks) data.libraryLinks = Object.assign(data.libraryLinks, migratedLinks);
   data.rememberPrefs = sanitizeRememberPrefs(data.rememberPrefs);
   return data;
 }
@@ -211,7 +265,18 @@ class Component extends DCLogic {
       direction: P.direction || props.direction || 'aurora',
       input: P.input != null ? P.input : '',
       docInput: P.input != null ? P.input : '',
-      sourceName: P.sourceName || '',
+      libraryLinks: P.libraryLinks || defaultLibraryLinks(),
+      showLibrary: false,
+      libraryOpenContext: null, // slot key when opened via a panel's "Open from Library…", else null (global browse)
+      libraryFilter: '',
+      libraryMenuOpen: null, // which panel's own Save/Rename/… popover is open, if any
+      librarySaveAsPromptOpen: false,
+      librarySaveAsName: '',
+      librarySaveAsSlot: null,
+      libraryRenamePromptOpen: false,
+      libraryRenameId: null,
+      libraryRenameName: '',
+      libraryError: null,
       softWrap: !!P.softWrap,
       sanitizeScrollLock: !!P.sanitizeScrollLock,
       indent: P.indent || '2',
@@ -225,6 +290,9 @@ class Component extends DCLogic {
       query: P.query || '',
       copied: null,
       dragging: false,
+      draggingSpotA: false,
+      draggingSpotB: false,
+      draggingBury: false,
       tableMode: P.tableMode || 'path',
       tableSourcePath: P.tableSourcePath || '/root',
       tableLevelFilter: null, // Record Table log view: 'error'|'warn'|'info'|'debug'|null
@@ -247,7 +315,7 @@ class Component extends DCLogic {
       shareMsg: null,
       appMeta: APP_META_DEFAULT,
       rememberPrefs: sanitizeRememberPrefs(P.rememberPrefs),
-      sanitizeInput: '',
+      sanitizeInput: P.sanitizeInput != null ? P.sanitizeInput : '',
       sanitizeProfileId: 'servicenow',
       sanitizeOverrides: {},
       sanitizeManualRules: [],
@@ -279,6 +347,16 @@ class Component extends DCLogic {
     this.sanitizeOutputEditorRef = React.createRef();
     this.sanitizeOutputHighlightRef = React.createRef();
     this.diffResultRef = React.createRef();
+    this.digLibMenuRef = React.createRef();
+    this.spotALibMenuRef = React.createRef();
+    this.spotBLibMenuRef = React.createRef();
+    this.buryLibMenuRef = React.createRef();
+    this.diffAFileRef = React.createRef();
+    this.diffADropRef = React.createRef();
+    this.diffBFileRef = React.createRef();
+    this.diffBDropRef = React.createRef();
+    this.buryFileRef = React.createRef();
+    this.buryDropRef = React.createRef();
     this._lastMatch = -1;
     this._copyTimer = null;
     this._model = null;
@@ -340,6 +418,11 @@ class Component extends DCLogic {
       const settingsWrap = this.settingsMenuRef.current;
       if (settingsWrap && !settingsWrap.contains(e.target) && this.state.showSettings) this.setState({ showSettings: false });
       if (this.state.sendMenuOpen && !(e.target.closest && e.target.closest('.rf-send-menu-wrap'))) this.setState({ sendMenuOpen: null });
+      const libMenuRefs = { dig: this.digLibMenuRef, spotA: this.spotALibMenuRef, spotB: this.spotBLibMenuRef, bury: this.buryLibMenuRef };
+      if (this.state.libraryMenuOpen) {
+        const wrap = libMenuRefs[this.state.libraryMenuOpen] && libMenuRefs[this.state.libraryMenuOpen].current;
+        if (wrap && !wrap.contains(e.target)) this.setState({ libraryMenuOpen: null });
+      }
     };
     document.addEventListener('pointerdown', this._onDocClick, true);
     this._onResize = () => { const b = this.treeScrollRef.current; if (b && b.clientHeight) this.setState({ viewportH: b.clientHeight }); };
@@ -377,7 +460,7 @@ class Component extends DCLogic {
       prevState.rememberPrefs.explorer !== this.state.rememberPrefs.explorer ||
       prevState.rememberPrefs.find !== this.state.rememberPrefs.find
     );
-    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.sourceName !== this.state.sourceName || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.sanitizeScrollLock !== this.state.sanitizeScrollLock || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.sanitizeFullscreenPanel !== this.state.sanitizeFullscreenPanel || prevState.diffFullscreenPanel !== this.state.diffFullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.tableHasHeaderRow !== this.state.tableHasHeaderRow || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.rememberPrefs !== this.state.rememberPrefs)) {
+    if (prevState && (rememberChanged || prevState.input !== this.state.input || prevState.libraryLinks !== this.state.libraryLinks || prevState.theme !== this.state.theme || prevState.direction !== this.state.direction || prevState.mode !== this.state.mode || prevState.view !== this.state.view || prevState.indent !== this.state.indent || prevState.softWrap !== this.state.softWrap || prevState.sanitizeScrollLock !== this.state.sanitizeScrollLock || prevState.searchMode !== this.state.searchMode || prevState.explorerMode !== this.state.explorerMode || prevState.search !== this.state.search || prevState.query !== this.state.query || prevState.fullscreenPanel !== this.state.fullscreenPanel || prevState.sanitizeFullscreenPanel !== this.state.sanitizeFullscreenPanel || prevState.diffFullscreenPanel !== this.state.diffFullscreenPanel || prevState.tableMode !== this.state.tableMode || prevState.tableSourcePath !== this.state.tableSourcePath || prevState.tableHasHeaderRow !== this.state.tableHasHeaderRow || prevState.diffA !== this.state.diffA || prevState.diffB !== this.state.diffB || prevState.sanitizeInput !== this.state.sanitizeInput || prevState.rememberPrefs !== this.state.rememberPrefs)) {
       this.schedulePersist();
     }
     this.syncEditorLayers();
@@ -396,6 +479,7 @@ class Component extends DCLogic {
       sanitizeScrollLock: S.sanitizeScrollLock,
       tableHasHeaderRow: S.tableHasHeaderRow,
       rememberPrefs: remember,
+      libraryLinks: S.libraryLinks,
     };
 
     if (remember.workspace) {
@@ -419,12 +503,13 @@ class Component extends DCLogic {
       data.diffA = S.diffA;
       data.diffB = S.diffB;
       data.input = S.input;
-      if (typeof S.sourceName === 'string' && S.sourceName.trim()) data.sourceName = S.sourceName.trim().slice(0, SOURCE_NAME_MAX_LEN);
+      data.sanitizeInput = S.sanitizeInput;
     }
 
     if (typeof data.input === 'string' && data.input.length > MAX_PERSIST) delete data.input;
     if (typeof data.diffA === 'string' && data.diffA.length > MAX_PERSIST) delete data.diffA;
     if (typeof data.diffB === 'string' && data.diffB.length > MAX_PERSIST) delete data.diffB;
+    if (typeof data.sanitizeInput === 'string' && data.sanitizeInput.length > MAX_PERSIST) delete data.sanitizeInput;
 
     const stripKeys = (src, keys) => {
       const out = Object.assign({}, src);
@@ -435,8 +520,8 @@ class Component extends DCLogic {
     const attempts = [
       data,
       stripKeys(data, ['diffA', 'diffB']),
-      stripKeys(data, ['input', 'diffA', 'diffB', 'sourceName']),
-      stripKeys(data, ['input', 'diffA', 'diffB', 'search', 'query', 'sourceName'])
+      stripKeys(data, ['input', 'diffA', 'diffB', 'sanitizeInput']),
+      stripKeys(data, ['input', 'diffA', 'diffB', 'sanitizeInput', 'search', 'query'])
     ];
 
     for (let i = 0; i < attempts.length; i++) {
@@ -624,7 +709,6 @@ class Component extends DCLogic {
   async doShare() {
     const S = this.state;
     const data = { theme: S.theme, direction: S.direction, view: S.view, indent: S.indent, softWrap: S.softWrap, sanitizeScrollLock: S.sanitizeScrollLock, mode: S.mode, input: S.input };
-    if (S.sourceName) data.sourceName = S.sourceName;
     try {
       const hash = 'd=' + b64urlEncode(JSON.stringify(data));
       const url = location.origin + location.pathname + location.search + '#' + hash;
@@ -1151,7 +1235,6 @@ class Component extends DCLogic {
   applyInput(val, extra) {
     if (this.editorRef.current && this.editorRef.current.value !== val) this.editorRef.current.value = val;
     const next = Object.assign({ input: val, docInput: val }, extra || {});
-    if (!String(val || '').trim() && !Object.prototype.hasOwnProperty.call(next, 'sourceName')) next.sourceName = '';
     this.setState(next);
   }
 
@@ -1980,10 +2063,169 @@ class Component extends DCLogic {
     return h('div', { title: 'Change overview — click to jump', style: { position: 'absolute', top: 0, right: 0, bottom: 0, width: '10px', background: tok.panel2, borderLeft: '1px solid ' + tok.border } }, ticks);
   }
 
+  // ---------- payload library ----------
+  // Named, multi-document persistence shared by Dig/Spot A/Spot B/Bury (see
+  // js/library.js for the record CRUD/storage this wraps). Each of the four
+  // slots holds a *link* — which saved record, if any, is currently open —
+  // plus a dirty flag (edited since the last save). Replaces the old,
+  // Dig-only `sourceName` scalar.
+
+  getSlotContent(slotKey) {
+    const S = this.state;
+    if (slotKey === 'dig') return S.input;
+    if (slotKey === 'spotA') return S.diffA;
+    if (slotKey === 'spotB') return S.diffB;
+    if (slotKey === 'bury') return S.sanitizeInput;
+    return '';
+  }
+
+  // Routes to the right per-slot setter, then — only when `link` is passed —
+  // replaces libraryLinks[slotKey] with it (e.g. after a save or a Library
+  // "open into slot"). Omit `link` for a plain content update.
+  setSlotContent(slotKey, text, link) {
+    if (slotKey === 'dig') this.applyInput(text, { collapsed: new Set(), search: '', query: '', matchIndex: 0 });
+    else if (slotKey === 'spotA') this.setState({ diffA: text });
+    else if (slotKey === 'spotB') this.setState({ diffB: text });
+    else if (slotKey === 'bury') this.setSanitizeInput(text);
+    if (link) this.setLibraryLink(slotKey, link);
+  }
+
+  setLibraryLink(slotKey, link) {
+    this.setState((s) => ({ libraryLinks: Object.assign({}, s.libraryLinks, { [slotKey]: Object.assign({ id: null, dirty: false }, link) }) }));
+  }
+
+  // Marks a linked slot dirty on edit. No-ops (no setState at all) once
+  // already dirty, or when the slot isn't linked to anything — nothing to
+  // mark stale — so this is cheap enough to call on every keystroke.
+  markSlotDirty(slotKey) {
+    const link = this.state.libraryLinks[slotKey];
+    if (link.id && !link.dirty) this.setLibraryLink(slotKey, { id: link.id, dirty: true });
+  }
+
+  // Spot A/B's plain keystroke handler: update the textarea, then mark that
+  // slot dirty (or drop its link entirely once blanked, same as Dig/Bury).
+  updateDiffSlot(slotKey, value) {
+    if (slotKey === 'spotA') this.setState({ diffA: value });
+    else if (slotKey === 'spotB') this.setState({ diffB: value });
+    if (value.trim()) this.markSlotDirty(slotKey); else this.unlinkSlot(slotKey);
+  }
+
+  // Drops a slot's link without touching its on-screen content — used when
+  // the user clears/samples a slot, or deletes the record it pointed at.
+  unlinkSlot(slotKey) {
+    this.setLibraryLink(slotKey, { id: null, dirty: false });
+  }
+
+  libraryErrorMessage(res) {
+    if (res.error === 'too-large') {
+      return 'This payload is too large to save to the Library (limit ' + (res.limitBytes / 1000000).toFixed(1) + 'MB).';
+    }
+    if (res.error === 'quota') return 'Library storage is full. Delete some saved payloads or shrink this one, then try again.';
+    return 'Could not save to the Library.';
+  }
+
+  // Overwrites the slot's linked record with its current content. A slot
+  // with no link yet has nothing to overwrite, so this falls through to
+  // Save As instead.
+  saveLibrarySlot(slotKey) {
+    const link = this.state.libraryLinks[slotKey];
+    if (!link.id) { this.openLibrarySaveAsPrompt(slotKey); return; }
+    const content = this.getSlotContent(slotKey);
+    const res = window.PAW_LIBRARY.update(link.id, { content, format: this.detect(content) });
+    if (!res.ok) { this.setState({ libraryError: this.libraryErrorMessage(res) }); return; }
+    this.setLibraryLink(slotKey, { id: link.id, dirty: false });
+  }
+
+  openLibrarySaveAsPrompt(slotKey) {
+    // The name prompt renders inside the Library browser modal, so open it
+    // too (context stays whatever it already was, if it was already open).
+    this.setState({ showLibrary: true, librarySaveAsPromptOpen: true, librarySaveAsSlot: slotKey, librarySaveAsName: '', libraryError: null, libraryMenuOpen: null });
+  }
+
+  cancelLibrarySaveAs() {
+    this.setState({ librarySaveAsPromptOpen: false, librarySaveAsSlot: null, librarySaveAsName: '' });
+  }
+
+  confirmLibrarySaveAs() {
+    const slotKey = this.state.librarySaveAsSlot;
+    if (!slotKey) return;
+    const content = this.getSlotContent(slotKey);
+    const name = this.state.librarySaveAsName.trim().slice(0, LIBRARY_NAME_MAX_LEN) || ('Untitled (' + HANDOFF_TARGETS[slotKey].label + ')');
+    const res = window.PAW_LIBRARY.create({ name, content, format: this.detect(content), originMode: slotKey });
+    if (!res.ok) { this.setState({ libraryError: this.libraryErrorMessage(res) }); return; }
+    this.setLibraryLink(slotKey, { id: res.record.id, dirty: false });
+    // Save As is invoked to get back to work, not to browse — close the
+    // library modal it opened in, unlike Rename (often done mid-browse).
+    this.setState({ librarySaveAsPromptOpen: false, librarySaveAsSlot: null, librarySaveAsName: '', showLibrary: false, libraryOpenContext: null });
+  }
+
+  openLibraryRenamePrompt(id, currentName) {
+    // Same as Save As above — the rename prompt lives inside the Library
+    // browser modal.
+    this.setState({ showLibrary: true, libraryRenamePromptOpen: true, libraryRenameId: id, libraryRenameName: currentName || '', libraryMenuOpen: null });
+  }
+
+  cancelLibraryRename() {
+    this.setState({ libraryRenamePromptOpen: false, libraryRenameId: null, libraryRenameName: '' });
+  }
+
+  confirmLibraryRename() {
+    const id = this.state.libraryRenameId;
+    const name = this.state.libraryRenameName.trim().slice(0, LIBRARY_NAME_MAX_LEN);
+    if (!id || !name) return;
+    const res = window.PAW_LIBRARY.update(id, { name });
+    if (!res.ok) { this.setState({ libraryError: this.libraryErrorMessage(res) }); return; }
+    this.setState({ libraryRenamePromptOpen: false, libraryRenameId: null, libraryRenameName: '' });
+  }
+
+  duplicateLibraryRecord(id, slotKey) {
+    const record = window.PAW_LIBRARY.get(id);
+    if (!record) return;
+    const res = window.PAW_LIBRARY.duplicate(id, record.name + ' copy');
+    if (!res.ok) { this.setState({ libraryError: this.libraryErrorMessage(res) }); return; }
+    if (slotKey) this.openLibraryRecordIntoSlot(res.record.id, slotKey);
+    else this.setState({ libraryMenuOpen: null });
+  }
+
+  // Deleting a saved record never touches whatever's currently on screen —
+  // only the link is dropped for any slot that pointed at it.
+  deleteLibraryRecord(id) {
+    const res = window.PAW_LIBRARY.remove(id);
+    if (!res.ok) { this.setState({ libraryError: this.libraryErrorMessage(res) }); return; }
+    LIBRARY_SLOTS.forEach((slot) => { if (this.state.libraryLinks[slot].id === id) this.unlinkSlot(slot); });
+  }
+
+  openLibraryRecordIntoSlot(id, slotKey) {
+    const record = window.PAW_LIBRARY.get(id);
+    if (!record) return;
+    this.setSlotContent(slotKey, record.content, { id: record.id, dirty: false });
+    this.setState({ showLibrary: false, libraryOpenContext: null, libraryMenuOpen: null, mode: HANDOFF_TARGETS[slotKey].mode });
+  }
+
+  openLibraryBrowser(context) {
+    this.setState({ showLibrary: true, libraryOpenContext: context || null, libraryFilter: '', libraryMenuOpen: null });
+  }
+
+  closeLibraryBrowser() {
+    this.setState({ showLibrary: false, libraryOpenContext: null });
+  }
+
   // ---------- handlers ----------
   loadFile(file) {
+    return this.loadFileIntoSlot(file, 'dig');
+  }
+
+  loadFileIntoSlot(file, slotKey) {
     const r = new FileReader();
-    r.onload = () => { const v = String(r.result); this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0, sourceName: String(file && file.name ? file.name : '').trim().slice(0, SOURCE_NAME_MAX_LEN) }); };
+    r.onload = () => {
+      const content = String(r.result);
+      const name = String(file && file.name ? file.name : '').trim().slice(0, LIBRARY_NAME_MAX_LEN);
+      if (slotKey === 'dig') this.applyInput(content, { collapsed: new Set(), search: '', query: '', matchIndex: 0 });
+      else this.setSlotContent(slotKey, content);
+      const res = window.PAW_LIBRARY.create({ name, content, format: this.detect(content), originMode: slotKey });
+      if (res.ok) this.setLibraryLink(slotKey, { id: res.record.id, dirty: false });
+      else this.setState({ libraryError: this.libraryErrorMessage(res) });
+    };
     r.readAsText(file);
   }
 
@@ -2058,30 +2300,49 @@ class Component extends DCLogic {
     return false;
   }
 
-  performHandoff(key, text) {
+  // `originSlot`, when given, is the library-slot the content actually came
+  // from (as opposed to `key`'s popover identity — see renderSendToMenu).
+  // The destination only inherits the source's library link when that
+  // source is itself linked and clean (an exact, saved copy) — otherwise
+  // the destination just gets the content, unlinked, which is always safe.
+  performHandoff(key, text, originSlot) {
     const target = HANDOFF_TARGETS[key];
     if (!target) return;
-    if (key === 'dig') this.applyInput(text, { collapsed: new Set(), search: '', query: '', matchIndex: 0, sourceName: '' });
-    else if (key === 'spotA') this.setState({ diffA: text });
-    else if (key === 'spotB') this.setState({ diffB: text });
-    else if (key === 'bury') this.setSanitizeInput(text);
+    this.setSlotContent(key, text);
+    const originLink = originSlot && this.state.libraryLinks[originSlot];
+    const carryLink = originLink && originLink.id && !originLink.dirty ? { id: originLink.id, dirty: false } : { id: null, dirty: false };
+    this.setLibraryLink(key, carryLink);
     this.setState({ mode: target.mode, sendMenuOpen: null });
   }
 
   // If the destination already has content, ask before overwriting it
-  // (see the confirm-replace modal in index.html); otherwise just apply.
-  requestHandoff(key, text) {
+  // (see the confirm-replace modal in index.html) — and additionally offer
+  // "Save first" when that existing content is itself unsaved (dirty);
+  // otherwise just apply.
+  requestHandoff(key, text, originSlot) {
     if (this.handoffHasContent(key)) {
-      this.setState({ handoffConfirm: { key, text, label: HANDOFF_TARGETS[key].label }, sendMenuOpen: null });
+      const destLink = this.state.libraryLinks[key];
+      this.setState({ handoffConfirm: { key, text, originSlot, label: HANDOFF_TARGETS[key].label, destDirty: !!(destLink && destLink.dirty) }, sendMenuOpen: null });
     } else {
-      this.performHandoff(key, text);
+      this.performHandoff(key, text, originSlot);
     }
   }
 
   confirmHandoff() {
     const pending = this.state.handoffConfirm;
     if (!pending) return;
-    this.performHandoff(pending.key, pending.text);
+    this.performHandoff(pending.key, pending.text, pending.originSlot);
+    this.setState({ handoffConfirm: null });
+  }
+
+  // Saves the destination slot's current (about-to-be-replaced) content to
+  // its linked record first, then proceeds with the hand-off — so unsaved
+  // work sitting in the destination isn't lost, only overwritten on screen.
+  confirmHandoffSaveFirst() {
+    const pending = this.state.handoffConfirm;
+    if (!pending) return;
+    this.saveLibrarySlot(pending.key);
+    this.performHandoff(pending.key, pending.text, pending.originSlot);
     this.setState({ handoffConfirm: null });
   }
 
@@ -2092,7 +2353,7 @@ class Component extends DCLogic {
   // One "Send to…" button + popover per qualifying panel, listing every
   // hand-off target whose mode isn't `sourceMode` (a panel never offers its
   // own current mode as a destination).
-  renderSendToMenu(sourceKey, sourceMode, text, tok) {
+  renderSendToMenu(sourceKey, sourceMode, text, tok, originSlot) {
     const isOpen = this.state.sendMenuOpen === sourceKey;
     const targets = Object.keys(HANDOFF_TARGETS).filter((k) => HANDOFF_TARGETS[k].mode !== sourceMode);
     const triggerStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '30px', height: '30px', padding: 0, border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, background: tok.elev, color: tok.textDim, cursor: 'pointer' };
@@ -2107,10 +2368,89 @@ class Component extends DCLogic {
       style: { position: 'absolute', top: '34px', right: 0, display: 'inline-flex', flexDirection: 'column', alignItems: 'stretch', zIndex: 20, background: tok.panel, border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, boxShadow: tok.shadow, overflow: 'hidden' },
     }, targets.map((k) => h('button', {
       key: k,
-      onClick: () => this.requestHandoff(k, text),
+      onClick: () => this.requestHandoff(k, text, originSlot),
       style: itemStyle,
     }, 'Send to ' + HANDOFF_TARGETS[k].label))) : null;
     return h('div', { className: 'rf-send-menu-wrap', style: { position: 'relative', display: 'inline-flex' } }, trigger, menu);
+  }
+
+  // One "Library" control per slot: a trigger showing the linked payload's
+  // name (or a neutral placeholder when unlinked) plus a dirty dot, and a
+  // popover for Save/Save As/Rename/Duplicate/Unlink/Open from Library.
+  renderLibraryMenu(slotKey, tok) {
+    const link = this.state.libraryLinks[slotKey];
+    const record = link.id ? window.PAW_LIBRARY.get(link.id) : null;
+    const isOpen = this.state.libraryMenuOpen === slotKey;
+    const label = record ? record.name : 'Unsaved';
+    const triggerStyle = { display: 'inline-flex', alignItems: 'center', gap: '6px', height: '30px', padding: '0 10px', border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, background: tok.elev, color: tok.text, font: '600 11.5px/1 ' + tok.fontUi, cursor: 'pointer', maxWidth: '180px' };
+    const dotStyle = { width: '6px', height: '6px', borderRadius: '50%', flex: '0 0 auto', background: link.dirty ? tok.sem.warn : (record ? tok.sem.ok : tok.textFaint) };
+    const nameStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+    const itemStyle = { display: 'block', width: 'auto', minWidth: '180px', height: '30px', padding: '0 10px', border: 0, borderBottom: '1px solid ' + tok.border, background: 'transparent', color: tok.text, font: '500 12px/1 ' + tok.fontUi, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' };
+    const disabledItemStyle = Object.assign({}, itemStyle, { color: tok.textFaint, cursor: 'default' });
+    const trigger = h('button', {
+      key: 'trigger',
+      title: record ? (link.dirty ? record.name + ' — unsaved changes' : record.name) : 'Not saved to the Library',
+      onClick: (e) => { e.stopPropagation(); this.setState((s) => ({ libraryMenuOpen: s.libraryMenuOpen === slotKey ? null : slotKey })); },
+      style: triggerStyle,
+    }, window.PAW_ICONS ? window.PAW_ICONS.folder() : null, h('span', { key: 'n', style: nameStyle }, label), h('span', { key: 'd', style: dotStyle }));
+    const items = [
+      h('button', { key: 'save', style: link.id ? itemStyle : disabledItemStyle, onClick: () => { if (link.id) this.saveLibrarySlot(slotKey); } }, window.PAW_ICONS ? window.PAW_ICONS.save() : null, 'Save'),
+      h('button', { key: 'saveas', style: itemStyle, onClick: () => this.openLibrarySaveAsPrompt(slotKey) }, 'Save As…'),
+    ];
+    if (link.id) {
+      items.push(h('button', { key: 'rename', style: itemStyle, onClick: () => this.openLibraryRenamePrompt(link.id, record ? record.name : '') }, 'Rename…'));
+      items.push(h('button', { key: 'dup', style: itemStyle, onClick: () => this.duplicateLibraryRecord(link.id, slotKey) }, 'Duplicate'));
+      items.push(h('button', { key: 'unlink', style: itemStyle, onClick: () => this.setState({ libraryMenuOpen: null, libraryLinks: Object.assign({}, this.state.libraryLinks, { [slotKey]: { id: null, dirty: false } }) }) }, 'Unlink'));
+    }
+    items.push(h('button', { key: 'open', style: itemStyle, onClick: () => this.openLibraryBrowser(slotKey) }, 'Open from Library…'));
+    const menu = isOpen ? h('div', {
+      key: 'menu',
+      style: { position: 'absolute', top: '34px', right: 0, display: 'inline-flex', flexDirection: 'column', alignItems: 'stretch', zIndex: 20, background: tok.panel, border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, boxShadow: tok.shadow, overflow: 'hidden' },
+    }, items) : null;
+    const refBySlot = { dig: this.digLibMenuRef, spotA: this.spotALibMenuRef, spotB: this.spotBLibMenuRef, bury: this.buryLibMenuRef };
+    return h('div', { className: 'rf-library-menu-wrap', ref: refBySlot[slotKey], style: { position: 'relative', display: 'inline-flex', minWidth: 0 } }, trigger, menu);
+  }
+
+  // Row list for the Library browser modal. `libraryOpenContext` (set when a
+  // panel launched the browser via "Open from Library…") narrows each row to
+  // one "Open" action for that slot; opened from the navbar with no context,
+  // every row offers all four destinations, mirroring renderSendToMenu.
+  renderLibraryBrowser(tok) {
+    const S = this.state;
+    const records = window.PAW_LIBRARY ? window.PAW_LIBRARY.list() : [];
+    const filter = (S.libraryFilter || '').trim().toLowerCase();
+    const filtered = filter ? records.filter((r) => r.name.toLowerCase().indexOf(filter) !== -1) : records;
+    const context = S.libraryOpenContext;
+    const rowStyle = { display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 6px', borderBottom: '1px solid ' + tok.border };
+    const nameStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', font: '600 12.5px/1.3 ' + tok.fontUi, color: tok.text };
+    const metaStyle = { font: '500 10.5px/1 ' + tok.fontMono, color: tok.textFaint, whiteSpace: 'nowrap' };
+    const smallBtnStyle = { height: '26px', padding: '0 8px', border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, background: tok.elev, color: tok.text, font: '600 11px/1 ' + tok.fontUi, cursor: 'pointer', whiteSpace: 'nowrap' };
+    const iconBtnStyle = { width: '26px', height: '26px', flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid ' + tok.border, borderRadius: tok.radiusSm, background: tok.elev, color: tok.textDim, cursor: 'pointer' };
+
+    if (!filtered.length) {
+      return h('div', { style: { padding: '28px 10px', textAlign: 'center', color: tok.textFaint, font: '500 12.5px/1.5 ' + tok.fontUi } },
+        records.length ? ('No saved payloads match "' + S.libraryFilter + '".') : 'Nothing saved yet — paste or import a payload, then Save it from any panel.');
+    }
+
+    return h('div', null, filtered.map((r) => {
+      const openTargets = context ? [context] : LIBRARY_SLOTS;
+      const originLabel = HANDOFF_TARGETS[r.originMode] ? HANDOFF_TARGETS[r.originMode].label : r.originMode;
+      return h('div', { key: r.id, className: 'rf-library-row', style: rowStyle },
+        h('div', { key: 'main', style: { flex: '1 1 auto', minWidth: 0 } },
+          h('div', { key: 'n', style: nameStyle }, r.name),
+          h('div', { key: 'm', style: metaStyle }, String(r.format || 'text').toUpperCase() + ' · from ' + originLabel + ' · ' + formatByteSize(r.size || 0) + ' · ' + new Date(r.updatedAt).toLocaleString())
+        ),
+        h('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', gap: '5px', flex: '0 0 auto' } },
+          openTargets.map((slot) => h('button', {
+            key: 'open-' + slot, style: smallBtnStyle, title: 'Open in ' + HANDOFF_TARGETS[slot].label,
+            onClick: () => this.openLibraryRecordIntoSlot(r.id, slot),
+          }, context ? 'Open' : HANDOFF_TARGETS[slot].label)),
+          h('button', { key: 'rename', title: 'Rename', style: iconBtnStyle, onClick: () => this.openLibraryRenamePrompt(r.id, r.name) }, window.PAW_ICONS ? window.PAW_ICONS.pencil() : null),
+          h('button', { key: 'dup', title: 'Duplicate', style: iconBtnStyle, onClick: () => this.duplicateLibraryRecord(r.id, null) }, window.PAW_ICONS ? window.PAW_ICONS.copy() : null),
+          h('button', { key: 'del', title: 'Delete', style: iconBtnStyle, onClick: () => this.deleteLibraryRecord(r.id) }, window.PAW_ICONS ? window.PAW_ICONS.trash() : null)
+        )
+      );
+    }));
   }
 
   toggleSanitizeMatchExcluded(id) {
@@ -2822,8 +3162,14 @@ class Component extends DCLogic {
     const explorerCopyPayloadText = queryFilterActive
       ? queryPayloadText
       : (searchFilterActive ? explorerPayloadText : (parsed.empty ? '' : S.input));
-    const sourceSendMenuEl = S.mode === 'format' ? this.renderSendToMenu('source', 'format', S.input, tok) : null;
+    const sourceSendMenuEl = S.mode === 'format' ? this.renderSendToMenu('source', 'format', S.input, tok, 'dig') : null;
     const explorerSendMenuEl = S.mode === 'format' ? this.renderSendToMenu('explorer', 'format', explorerCopyPayloadText, tok) : null;
+    const digLibraryMenuEl = S.mode === 'format' ? this.renderLibraryMenu('dig', tok) : null;
+
+    // Payload Library browser (global modal — mode-independent).
+    const libUsage = window.PAW_LIBRARY ? window.PAW_LIBRARY.usage() : { bytes: 0, count: 0, limitBytes: 1 };
+    const libraryUsageText = libUsage.count + (libUsage.count === 1 ? ' saved payload · ' : ' saved payloads · ') + formatByteSize(libUsage.bytes) + ' of ~' + formatByteSize(libUsage.limitBytes) + ' used';
+    const libraryListEl = S.showLibrary ? this.renderLibraryBrowser(tok) : null;
     const activePath = (S.explorerMode === 'query' && queryMatchPaths.size)
       ? Array.from(queryMatchPaths)[0]
       : ((S.view === 'raw' || activeIndex < 0) ? null : matches[activeIndex]);
@@ -3062,8 +3408,9 @@ class Component extends DCLogic {
     const sanitizeGridClass = 'rf-sanitize-grid' + (S.sanitizeFullscreenPanel === 'input' ? ' rf-fs-input' : (S.sanitizeFullscreenPanel === 'output' ? ' rf-fs-output' : ''));
     const sanitizeInputPanelClass = 'rf-sanitize-panel rf-sanitize-panel-input' + (S.sanitizeFullscreenPanel === 'input' ? ' rf-panel-fullscreen' : '');
     const sanitizeOutputPanelClass = 'rf-sanitize-panel rf-sanitize-panel-output' + (S.sanitizeFullscreenPanel === 'output' ? ' rf-panel-fullscreen' : '');
-    const sanitizeInputSendMenuEl = S.mode === 'sanitize' ? this.renderSendToMenu('sanitizeInput', 'sanitize', S.sanitizeInput, tok) : null;
+    const sanitizeInputSendMenuEl = S.mode === 'sanitize' ? this.renderSendToMenu('sanitizeInput', 'sanitize', S.sanitizeInput, tok, 'bury') : null;
     const sanitizeOutputSendMenuEl = S.mode === 'sanitize' ? this.renderSendToMenu('sanitizeOutput', 'sanitize', sanitizeOutput, tok) : null;
+    const buryLibraryMenuEl = S.mode === 'sanitize' ? this.renderLibraryMenu('bury', tok) : null;
     const diffSummary = (diff.add || diff.del) ? '+' + diff.add + '  −' + diff.del : 'Identical';
     const diffSummaryStyle = { font: '600 12px/1 ' + tok.fontMono, color: (diff.add || diff.del) ? tok.text : tok.sem.ok, padding: '0 4px' };
     const diffWrapClass = 'rf-diff-wrap' + (S.diffFullscreenPanel === 'a' ? ' rf-fs-a' : (S.diffFullscreenPanel === 'b' ? ' rf-fs-b' : (S.diffFullscreenPanel === 'result' ? ' rf-fs-result' : '')));
@@ -3071,8 +3418,10 @@ class Component extends DCLogic {
     const diffPanelBClass = 'rf-diff-panel-b' + (S.diffFullscreenPanel === 'b' ? ' rf-panel-fullscreen' : '');
     const diffPanelResultClass = 'rf-diff-panel-result' + (S.diffFullscreenPanel === 'result' ? ' rf-panel-fullscreen' : '');
     const diffMinimapEl = S.mode === 'diff' ? this.renderDiffMinimap(diff.rows, tok) : null;
-    const diffASendMenuEl = S.mode === 'diff' ? this.renderSendToMenu('diffA', 'diff', S.diffA, tok) : null;
-    const diffBSendMenuEl = S.mode === 'diff' ? this.renderSendToMenu('diffB', 'diff', S.diffB, tok) : null;
+    const diffASendMenuEl = S.mode === 'diff' ? this.renderSendToMenu('diffA', 'diff', S.diffA, tok, 'spotA') : null;
+    const diffBSendMenuEl = S.mode === 'diff' ? this.renderSendToMenu('diffB', 'diff', S.diffB, tok, 'spotB') : null;
+    const spotALibraryMenuEl = S.mode === 'diff' ? this.renderLibraryMenu('spotA', tok) : null;
+    const spotBLibraryMenuEl = S.mode === 'diff' ? this.renderLibraryMenu('spotB', tok) : null;
     const formatGridClass = 'rf-format-grid' + (S.fullscreenPanel === 'source' ? ' rf-fs-source' : (S.fullscreenPanel === 'explorer' ? ' rf-fs-explorer' : ''));
     const sourcePanelClass = 'rf-panel-source' + (S.fullscreenPanel === 'source' ? ' rf-panel-fullscreen' : '');
     const explorerPanelClass = 'rf-panel-explorer' + (S.fullscreenPanel === 'explorer' ? ' rf-panel-fullscreen' : '');
@@ -3152,13 +3501,12 @@ class Component extends DCLogic {
       input: S.input, onInput: (e) => {
         const val = e.target.value;
         // Keep the controlled textarea in sync on every keystroke so caret position stays stable.
-        this.setState(val.trim() ? { input: val } : { input: val, sourceName: '' });
+        this.setState({ input: val });
+        if (val.trim()) this.markSlotDirty('dig'); else this.unlinkSlot('dig');
         clearTimeout(this._docTimer);
         // Parse/explorer work remains debounced via docInput for large documents.
         this._docTimer = setTimeout(() => this.setState(s => (s.docInput === val ? null : { docInput: val })), 160);
       },
-      sourceName: S.sourceName,
-      onSourceName: (e) => this.setState({ sourceName: e.target.value.slice(0, SOURCE_NAME_MAX_LEN) }),
       onEditorScroll: (e) => this.syncEditorLayers(e.target),
       editorRef: this.editorRef, highlightRef: this.highlightRef, gutterRef: this.gutterRef, fileRef: this.fileRef, dropRef: this.dropRef, treeScrollRef: this.treeScrollRef,
       highlightEl, highlightStyle, gutterText, taStyle,
@@ -3182,11 +3530,12 @@ class Component extends DCLogic {
       onConvert: () => this.convert(), convertLabel: isXml ? 'To JSON' : 'To XML',
       onUploadClick: () => this.fileRef.current && this.fileRef.current.click(),
       onUpload: (e) => { const f = e.target.files && e.target.files[0]; if (f) this.loadFile(f); e.target.value = ''; },
-      onSample: () => { const v = isXml ? this.jsonToXml(JSON.parse(SAMPLE_JSON)) : SAMPLE_JSON; this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0, sourceName: '' }); },
+      onSample: () => { const v = isXml ? this.jsonToXml(JSON.parse(SAMPLE_JSON)) : SAMPLE_JSON; this.applyInput(v, { collapsed: new Set(), search: '', query: '', matchIndex: 0 }); this.unlinkSlot('dig'); },
       onCopySource: () => this.copy(S.input, '__src'), copyLabel: S.copied === '__src' ? 'Copied ✓' : 'Copy',
       sourceSendMenuEl,
+      digLibraryMenuEl,
       onDownload: () => { const blob = new Blob([S.input], { type: isXml ? 'text/xml' : isTable ? 'text/csv' : 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'document.' + (isXml ? 'xml' : tableExt || 'json'); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); },
-      onClear: () => this.applyInput('', { collapsed: new Set(), search: '', query: '' }),
+      onClear: () => { this.applyInput('', { collapsed: new Set(), search: '', query: '' }); this.unlinkSlot('dig'); },
       onDragOver: (e) => { e.preventDefault(); if (!S.dragging) this.setState({ dragging: true }); },
       onDragLeave: (e) => { e.preventDefault(); this.setState({ dragging: false }); },
       onDrop: (e) => { e.preventDefault(); this.setState({ dragging: false }); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) this.loadFile(f); },
@@ -3197,8 +3546,31 @@ class Component extends DCLogic {
       onToggleHelp: () => this.setState(s => ({ showHelp: !s.showHelp, showAbout: false, showSettings: false })), showHelp: S.showHelp, stop: (e) => e.stopPropagation(),
       handoffConfirmOpen: !!S.handoffConfirm,
       handoffConfirmLabel: S.handoffConfirm ? S.handoffConfirm.label : '',
+      handoffConfirmShowSaveFirst: !!(S.handoffConfirm && S.handoffConfirm.destDirty),
       onConfirmHandoff: () => this.confirmHandoff(),
+      onConfirmHandoffSaveFirst: () => this.confirmHandoffSaveFirst(),
       onCancelHandoff: () => this.cancelHandoff(),
+
+      // Payload Library — navbar button + global browser modal
+      onOpenLibrary: () => this.openLibraryBrowser(null),
+      onCloseLibrary: () => this.closeLibraryBrowser(),
+      showLibrary: S.showLibrary,
+      libraryFilter: S.libraryFilter,
+      onLibraryFilterChange: (e) => this.setState({ libraryFilter: e.target.value }),
+      libraryUsageText,
+      libraryListEl,
+      libraryError: S.libraryError,
+      onDismissLibraryError: () => this.setState({ libraryError: null }),
+      librarySaveAsPromptOpen: S.librarySaveAsPromptOpen,
+      librarySaveAsName: S.librarySaveAsName,
+      onLibrarySaveAsNameChange: (e) => this.setState({ librarySaveAsName: e.target.value.slice(0, LIBRARY_NAME_MAX_LEN) }),
+      onConfirmLibrarySaveAs: () => this.confirmLibrarySaveAs(),
+      onCancelLibrarySaveAs: () => this.cancelLibrarySaveAs(),
+      libraryRenamePromptOpen: S.libraryRenamePromptOpen,
+      libraryRenameName: S.libraryRenameName,
+      onLibraryRenameNameChange: (e) => this.setState({ libraryRenameName: e.target.value.slice(0, LIBRARY_NAME_MAX_LEN) }),
+      onConfirmLibraryRename: () => this.confirmLibraryRename(),
+      onCancelLibraryRename: () => this.cancelLibraryRename(),
 
       statusBarStyle: { display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', borderTop: '1px solid ' + tok.border, background: hasError ? tok.sem.errW : (parsed.ok ? tok.sem.okW : tok.panel2) },
       statusText, statusColor, statusDot, statusDotHalo, hasError, errorLine,
@@ -3227,11 +3599,11 @@ class Component extends DCLogic {
       explorerEl, statsEl,
 
       diffA: S.diffA, diffB: S.diffB,
-      onDiffAChange: (e) => this.setState({ diffA: e.target.value }), onDiffBChange: (e) => this.setState({ diffB: e.target.value }),
-      onDiffAClear: () => this.setState({ diffA: '' }), onDiffBClear: () => this.setState({ diffB: '' }),
+      onDiffAChange: (e) => this.updateDiffSlot('spotA', e.target.value), onDiffBChange: (e) => this.updateDiffSlot('spotB', e.target.value),
+      onDiffAClear: () => { this.setState({ diffA: '' }); this.unlinkSlot('spotA'); }, onDiffBClear: () => { this.setState({ diffB: '' }); this.unlinkSlot('spotB'); },
       onDiffBeautify: () => { const nb = t => { const p = this.parse(t); return p.ok && p.format === 'json' ? JSON.stringify(p.value, null, 2) : (p.ok && p.format === 'xml' ? this.prettyXml(p.doc) : t); }; this.setState({ diffA: nb(S.diffA), diffB: nb(S.diffB) }); },
       onDiffSwap: () => this.setState(prevState => ({ diffA: prevState.diffB, diffB: prevState.diffA })),
-      onDiffSample: () => this.setState({ diffA: SAMPLE_DIFF_A, diffB: SAMPLE_DIFF_B }),
+      onDiffSample: () => { this.setState({ diffA: SAMPLE_DIFF_A, diffB: SAMPLE_DIFF_B }); this.unlinkSlot('spotA'); this.unlinkSlot('spotB'); },
       diffBothTable: diff.bothTable,
       diffAlignTitle: 'Diff by a guessed key column (sys_id, correlation_id, ...) instead of line order, so reordered/paged exports still diff sensibly',
       diffAlignBtnStyle: Object.assign({}, btnStyle, S.diffAlignByKey ? { color: tok.accent, borderColor: tok.accent, background: tok.accentWeak } : {}),
@@ -3243,6 +3615,21 @@ class Component extends DCLogic {
       diffResultRef: this.diffResultRef,
       diffMinimapEl,
       diffASendMenuEl, diffBSendMenuEl,
+      spotALibraryMenuEl, spotBLibraryMenuEl,
+      diffAFileRef: this.diffAFileRef, diffBFileRef: this.diffBFileRef,
+      onDiffAUploadClick: () => this.diffAFileRef.current && this.diffAFileRef.current.click(),
+      onDiffBUploadClick: () => this.diffBFileRef.current && this.diffBFileRef.current.click(),
+      onDiffAUpload: (e) => { const f = e.target.files && e.target.files[0]; if (f) this.loadFileIntoSlot(f, 'spotA'); e.target.value = ''; },
+      onDiffBUpload: (e) => { const f = e.target.files && e.target.files[0]; if (f) this.loadFileIntoSlot(f, 'spotB'); e.target.value = ''; },
+      diffADropRef: this.diffADropRef, diffBDropRef: this.diffBDropRef,
+      onDiffADragOver: (e) => { e.preventDefault(); if (!S.draggingSpotA) this.setState({ draggingSpotA: true }); },
+      onDiffADragLeave: (e) => { e.preventDefault(); this.setState({ draggingSpotA: false }); },
+      onDiffADrop: (e) => { e.preventDefault(); this.setState({ draggingSpotA: false }); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) this.loadFileIntoSlot(f, 'spotA'); },
+      onDiffBDragOver: (e) => { e.preventDefault(); if (!S.draggingSpotB) this.setState({ draggingSpotB: true }); },
+      onDiffBDragLeave: (e) => { e.preventDefault(); this.setState({ draggingSpotB: false }); },
+      onDiffBDrop: (e) => { e.preventDefault(); this.setState({ draggingSpotB: false }); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) this.loadFileIntoSlot(f, 'spotB'); },
+      diffADropOverlayStyle: { position: 'absolute', inset: 0, display: S.draggingSpotA ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: tok.accentWeak, border: '2px dashed ' + tok.accent, borderRadius: '8px', color: tok.accent, font: '700 15px/1 ' + tok.fontUi, pointerEvents: 'none', zIndex: 3, backdropFilter: 'blur(1px)' },
+      diffBDropOverlayStyle: { position: 'absolute', inset: 0, display: S.draggingSpotB ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: tok.accentWeak, border: '2px dashed ' + tok.accent, borderRadius: '8px', color: tok.accent, font: '700 15px/1 ' + tok.fontUi, pointerEvents: 'none', zIndex: 3, backdropFilter: 'blur(1px)' },
       diffAFullscreenLabel: S.diffFullscreenPanel === 'a' ? 'Exit fullscreen' : 'Fullscreen',
       diffBFullscreenLabel: S.diffFullscreenPanel === 'b' ? 'Exit fullscreen' : 'Fullscreen',
       diffResultFullscreenLabel: S.diffFullscreenPanel === 'result' ? 'Exit fullscreen' : 'Fullscreen',
@@ -3255,7 +3642,7 @@ class Component extends DCLogic {
 
       // sanitize
       sanitizeInput: S.sanitizeInput,
-      onSanitizeInput: (e) => this.setSanitizeInput(e.target.value),
+      onSanitizeInput: (e) => { const val = e.target.value; this.setSanitizeInput(val); if (val.trim()) this.markSlotDirty('bury'); else this.unlinkSlot('bury'); },
       onSanitizeMouseUp: (e) => {
         const start = e.target.selectionStart, end = e.target.selectionEnd;
         this.setState({ sanitizeSelection: (start !== end) ? { start, end } : null });
@@ -3271,6 +3658,15 @@ class Component extends DCLogic {
       sanitizeHighlightStyle,
       sanitizeGridClass, sanitizeInputPanelClass, sanitizeOutputPanelClass,
       sanitizeInputSendMenuEl, sanitizeOutputSendMenuEl,
+      buryLibraryMenuEl,
+      buryFileRef: this.buryFileRef,
+      onBuryUploadClick: () => this.buryFileRef.current && this.buryFileRef.current.click(),
+      onBuryUpload: (e) => { const f = e.target.files && e.target.files[0]; if (f) this.loadFileIntoSlot(f, 'bury'); e.target.value = ''; },
+      buryDropRef: this.buryDropRef,
+      onBuryDragOver: (e) => { e.preventDefault(); if (!S.draggingBury) this.setState({ draggingBury: true }); },
+      onBuryDragLeave: (e) => { e.preventDefault(); this.setState({ draggingBury: false }); },
+      onBuryDrop: (e) => { e.preventDefault(); this.setState({ draggingBury: false }); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) this.loadFileIntoSlot(f, 'bury'); },
+      buryDropOverlayStyle: { position: 'absolute', inset: 0, display: S.draggingBury ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', background: tok.accentWeak, border: '2px dashed ' + tok.accent, borderRadius: '8px', color: tok.accent, font: '700 15px/1 ' + tok.fontUi, pointerEvents: 'none', zIndex: 3, backdropFilter: 'blur(1px)' },
       sanitizeInputFullscreenLabel: S.sanitizeFullscreenPanel === 'input' ? 'Exit fullscreen' : 'Fullscreen',
       sanitizeOutputFullscreenLabel: S.sanitizeFullscreenPanel === 'output' ? 'Exit fullscreen' : 'Fullscreen',
       sanitizeInputFullscreenIcon: S.sanitizeFullscreenPanel === 'input' ? (window.PAW_ICONS ? window.PAW_ICONS.collapse() : null) : (window.PAW_ICONS ? window.PAW_ICONS.expand() : null),
@@ -3293,9 +3689,9 @@ class Component extends DCLogic {
       sanitizeSaveManualToggleStyle: rememberToggleStyle(S.sanitizeSaveManualAsRule),
       sanitizeSaveManualLabel: S.sanitizeSaveManualAsRule ? 'On' : 'Off',
       onSanitizeToggleSaveManual: () => this.setState(s => ({ sanitizeSaveManualAsRule: !s.sanitizeSaveManualAsRule })),
-      onSanitizeSample: () => this.setSanitizeInput(SAMPLE_SANITIZE),
-      onSanitizeClear: () => this.setSanitizeInput(''),
-      onSanitizeInputClear: () => this.setSanitizeInput(''),
+      onSanitizeSample: () => { this.setSanitizeInput(SAMPLE_SANITIZE); this.unlinkSlot('bury'); },
+      onSanitizeClear: () => { this.setSanitizeInput(''); this.unlinkSlot('bury'); },
+      onSanitizeInputClear: () => { this.setSanitizeInput(''); this.unlinkSlot('bury'); },
       sanitizeProfileSelectorEl,
       sanitizeOutput,
       onCopySanitizeOutput: () => this.copy(sanitizeOutput, '__sanitize'),
@@ -3344,6 +3740,8 @@ class Component extends DCLogic {
         iconDiffFile: ic.diffFile(),
         iconSettings: ic.settings(),
         iconInfo: ic.info(),
+        iconFolder: ic.folder(),
+        iconSave: ic.save(),
       }; })(window.PAW_ICONS) : {}),
     };
   }

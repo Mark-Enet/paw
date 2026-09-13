@@ -313,5 +313,23 @@
         13, 13, 'vertical-align:text-bottom;margin-right:3px'
       );
     },
+
+    // Payload Library (folder)  (13×13, inline style for alignment)
+    folder: function () {
+      return ic(
+        '<path d="M2 4.5a1 1 0 011-1h2.6l1 1.2H11a1 1 0 011 1V10a1 1 0 01-1 1H3a1 1 0 01-1-1V4.5z"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
+
+    // Save (floppy disk)  (13×13, inline style for alignment)
+    save: function () {
+      return ic(
+        '<path d="M3 2h6.5L11 3.5V11a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/>' +
+        '<path d="M4.5 2.5v2.5h4V2.5"/>' +
+        '<rect x="4.5" y="7" width="5" height="3.5"/>',
+        13, 13, 'vertical-align:text-bottom;margin-right:3px'
+      );
+    },
   };
 })();
