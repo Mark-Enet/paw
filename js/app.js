@@ -3023,6 +3023,12 @@ class Component extends DCLogic {
 
     const seg = (active) => ({ height: '26px', padding: '0 11px', border: 'none', borderRadius: '7px', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, background: active ? tok.panel : 'transparent', color: active ? tok.accent : tok.textDim, boxShadow: active ? '0 1px 3px rgba(0,0,0,.12)' : 'none', transition: 'all .12s' });
     const segIcon = (active) => Object.assign({}, seg(active), { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' });
+    // Mode tabs render as a three-way switch: a single pill "thumb" slides
+    // behind whichever button is active instead of each button toting its
+    // own background, so flipping modes reads as a physical toggle flick.
+    const modeSeg = (active) => ({ position: 'relative', zIndex: 1, flex: '1 1 0', height: '26px', border: 'none', borderRadius: '999px', background: 'transparent', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, color: active ? tok.accent : tok.textDim, transition: 'color .15s' });
+    const modeIndex = { format: 0, diff: 1, sanitize: 2 }[S.mode] || 0;
+    const tabThumbStyle = { position: 'absolute', top: '3px', bottom: '3px', left: `calc(3px + (100% - 6px) * ${modeIndex} / 3)`, width: 'calc((100% - 6px) / 3)', background: tok.panel, borderRadius: '999px', boxShadow: '0 1px 3px rgba(0,0,0,.12)', transition: 'left .18s cubic-bezier(.4,0,.2,1)' };
     const styleTone = {
       aurora: theme === 'dark' ? '#a89cff' : '#6d5efc',
       slate: theme === 'dark' ? '#58d5ca' : '#0e9f96',
@@ -3442,7 +3448,8 @@ class Component extends DCLogic {
     return {
       themeVars,
       isFormat: S.mode === 'format', isDiff: S.mode === 'diff', isSanitize: S.mode === 'sanitize',
-      tabFormatStyle: seg(S.mode === 'format'), tabDiffStyle: seg(S.mode === 'diff'), tabSanitizeStyle: seg(S.mode === 'sanitize'),
+      tabThumbStyle,
+      tabFormatStyle: modeSeg(S.mode === 'format'), tabDiffStyle: modeSeg(S.mode === 'diff'), tabSanitizeStyle: modeSeg(S.mode === 'sanitize'),
       onFormat: () => this.setState({ mode: 'format' }), onDiff: () => this.setState({ mode: 'diff' }), onSanitize: () => this.setState({ mode: 'sanitize' }),
       dirAuroraStyle: Object.assign({}, seg(dir === 'aurora'), { color: styleTone.aurora }),
       dirSlateStyle: Object.assign({}, seg(dir === 'slate'), { color: styleTone.slate }),
