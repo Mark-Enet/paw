@@ -3026,9 +3026,11 @@ class Component extends DCLogic {
     // Mode tabs render as a three-way switch: a single pill "thumb" slides
     // behind whichever button is active instead of each button toting its
     // own background, so flipping modes reads as a physical toggle flick.
-    const modeSeg = (active) => ({ position: 'relative', zIndex: 1, flex: '1 1 0', height: '26px', border: 'none', borderRadius: '999px', background: 'transparent', cursor: 'pointer', font: '600 12px/1 ' + tok.fontUi, color: active ? tok.accent : tok.textDim, transition: 'color .15s' });
+    // The active label also gets a heavier weight/size + accent-colored
+    // thumb ring so the current mode reads clearly at a glance.
+    const modeSeg = (active) => ({ position: 'relative', zIndex: 1, flex: '1 1 0', height: '28px', border: 'none', borderRadius: '999px', background: 'transparent', cursor: 'pointer', font: (active ? '700 13px/1 ' : '600 12px/1 ') + tok.fontUi, color: active ? tok.accent : tok.textDim, transition: 'color .15s, font-size .15s' });
     const modeIndex = { format: 0, diff: 1, sanitize: 2 }[S.mode] || 0;
-    const tabThumbStyle = { position: 'absolute', top: '3px', bottom: '3px', left: `calc(3px + (100% - 6px) * ${modeIndex} / 3)`, width: 'calc((100% - 6px) / 3)', background: tok.panel, borderRadius: '999px', boxShadow: '0 1px 3px rgba(0,0,0,.12)', transition: 'left .18s cubic-bezier(.4,0,.2,1)' };
+    const tabThumbStyle = { position: 'absolute', top: '3px', bottom: '3px', left: `calc(3px + ${modeIndex} * ((100% - 14px) / 3 + 4px))`, width: 'calc((100% - 14px) / 3)', background: tok.panel, borderRadius: '999px', border: '1.5px solid ' + tok.accent, boxShadow: '0 1px 4px rgba(0,0,0,.16)', transition: 'left .18s cubic-bezier(.4,0,.2,1)' };
     const styleTone = {
       aurora: theme === 'dark' ? '#a89cff' : '#6d5efc',
       slate: theme === 'dark' ? '#58d5ca' : '#0e9f96',
